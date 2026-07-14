@@ -2,6 +2,32 @@ import React, { createContext, useContext, useState, useEffect, useRef, useCallb
 import { Peer } from 'peerjs';
 import type { DataConnection } from 'peerjs';
 
+// ─── ICE / STUN config ────────────────────────────────────────────────────────
+// Google's public STUN servers allow WebRTC to punch through NAT on different
+// WiFi/mobile-data connections across countries (UK ↔ Sri Lanka etc.)
+const ICE_SERVERS = [
+  { urls: 'stun:stun.l.google.com:19302' },
+  { urls: 'stun:stun1.l.google.com:19302' },
+  { urls: 'stun:stun2.l.google.com:19302' },
+  { urls: 'stun:stun3.l.google.com:19302' },
+];
+
+const PEER_CONFIG = { config: { iceServers: ICE_SERVERS } };
+
+// ─── Short room code generator ────────────────────────────────────────────────
+// Generates a 6-char code like "LOVE47" — this becomes the actual Peer ID,
+// so guests only need to type these 6 chars to connect.
+const CONSONANTS = 'BCDFGHJKLMNPRSTVWXYZ';
+const DIGITS = '0123456789';
+
+function generateRoomCode(): string {
+  let code = '';
+  for (let i = 0; i < 4; i++) code += CONSONANTS[Math.floor(Math.random() * CONSONANTS.length)];
+  for (let i = 0; i < 2; i++) code += DIGITS[Math.floor(Math.random() * DIGITS.length)];
+  return code;
+}
+
+// ─── Types ────────────────────────────────────────────────────────────────────
 export type GameEvent =
   | { type: 'SYNC_NAMES'; payload: { name: string } }
   | { type: 'SELECT_GAME'; payload: { gameId: string | null } }
@@ -12,7 +38,7 @@ interface PeerContextType {
   peerId: string | null;
   roomCode: string | null;
   isConnected: boolean;
-  isHostReady: boolean; // Host's peer is open and waiting
+  isHostReady: boolean;
   isConnecting: boolean;
   role: 'host' | 'guest' | null;
   playerName: string;
@@ -52,6 +78,7 @@ export const PeerProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const peerRef = useRef<Peer | null>(null);
   const connRef = useRef<DataConnection | null>(null);
   const playerNameRef = useRef(playerName);
+  const connectTimeoutRef = useRef<number | null>(null);
 
   useEffect(() => {
     playerNameRef.current = playerName;
@@ -65,7 +92,6 @@ export const PeerProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const clearError = () => setError(null);
 
-  // Stable sendData using ref
   const sendData = useCallback((data: GameEvent) => {
     if (connRef.current && connRef.current.open) {
       connRef.current.send(data);
@@ -75,10 +101,15 @@ export const PeerProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const handleConnection = useCallback((connection: DataConnection) => {
     connRef.current = connection;
 
+    // Clear any pending timeout
+    if (connectTimeoutRef.current) {
+      clearTimeout(connectTimeoutRef.current);
+      connectTimeoutRef.current = null;
+    }
+
     connection.on('open', () => {
       setIsConnecting(false);
       setIsConnected(true);
-      // Send name once channel is open
       connection.send({ type: 'SYNC_NAMES', payload: { name: playerNameRef.current } });
     });
 
@@ -104,15 +135,19 @@ export const PeerProvider: React.FC<{ children: React.ReactNode }> = ({ children
     });
 
     connection.on('close', () => {
-      cleanupState('Partner disconnected 💔');
+      cleanupState('Partner disconnected 💔 Refresh and reconnect!');
     });
 
     connection.on('error', () => {
-      setError('Connection error. Please try reconnecting.');
+      setError('Connection error. Please try again.');
     });
   }, []);
 
   const cleanupState = (errMsg?: string) => {
+    if (connectTimeoutRef.current) {
+      clearTimeout(connectTimeoutRef.current);
+      connectTimeoutRef.current = null;
+    }
     connRef.current?.close();
     connRef.current = null;
     peerRef.current?.destroy();
@@ -129,23 +164,24 @@ export const PeerProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (errMsg) setError(errMsg);
   };
 
-  const hostRoom = (name: string) => {
+  // ─── HOST ──────────────────────────────────────────────────────────────────
+  // The host registers with a short custom code as the Peer ID (e.g. "STAR28").
+  // If the ID is already taken on the broker, we retry with a new code.
+  const hostRoom = useCallback((name: string, retryCode?: string) => {
     if (!name.trim()) { setError('Please enter your name first!'); return; }
-    if (peerRef.current) return; // already hosting
+    if (peerRef.current) return;
 
     setError(null);
     setIsConnecting(true);
     setRole('host');
 
-    // Use a random peer ID (most reliable with free PeerJS broker)
-    const peer = new Peer();
+    const code = retryCode ?? generateRoomCode();
+    const peer = new Peer(code, PEER_CONFIG);
     peerRef.current = peer;
 
     peer.on('open', (id) => {
       setPeerId(id);
-      // Use last 6 chars of peer ID as the room code (easy to share)
-      const code = id.slice(-6).toUpperCase();
-      setRoomCode(code);
+      setRoomCode(id); // ID is the code — clean & short
       setIsConnecting(false);
       setIsHostReady(true);
     });
@@ -153,7 +189,7 @@ export const PeerProvider: React.FC<{ children: React.ReactNode }> = ({ children
     peer.on('connection', (conn) => {
       setIsHostReady(false);
       handleConnection(conn);
-      // Send host's name after a short delay to ensure channel is ready
+      // Send host name after a brief delay to ensure the data channel is ready
       setTimeout(() => {
         if (conn.open) {
           conn.send({ type: 'SYNC_NAMES', payload: { name } });
@@ -161,53 +197,65 @@ export const PeerProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }, 300);
     });
 
-    peer.on('error', (err) => {
-      console.error('Host peer error:', err);
-      setError(`Could not start room: ${err.message}. Please try again.`);
-      cleanupState();
+    peer.on('error', (err: any) => {
+      console.warn('Host peer error:', err);
+      peerRef.current = null;
+
+      if (err.type === 'unavailable-id') {
+        // ID collision on broker — silently retry with a new code
+        hostRoom(name, generateRoomCode());
+      } else {
+        setError('Could not create room. Check your internet and try again.');
+        cleanupState();
+      }
     });
 
     peer.on('disconnected', () => {
-      // Try to reconnect
       if (peerRef.current && !peerRef.current.destroyed) {
         peerRef.current.reconnect();
       }
     });
-  };
+  }, [handleConnection]);
 
-  const joinRoom = (name: string, code: string) => {
+  // ─── JOIN ──────────────────────────────────────────────────────────────────
+  // Guest connects using the 6-char code which IS the host's Peer ID.
+  const joinRoom = useCallback((name: string, code: string) => {
     if (!name.trim()) { setError('Please enter your name first!'); return; }
     if (!code.trim()) { setError('Please enter the room code!'); return; }
+
+    const normalizedCode = code.trim().toUpperCase();
 
     setError(null);
     setIsConnecting(true);
     setRole('guest');
-    setRoomCode(code.toUpperCase());
+    setRoomCode(normalizedCode);
 
-    const peer = new Peer();
+    const peer = new Peer(PEER_CONFIG);
     peerRef.current = peer;
 
     peer.on('open', () => {
-      // The host's full peer ID ends with the 6-char code
-      // We need to find the host's full peer ID. Since we only have 6 chars,
-      // the guest connects to the host using the full peer ID.
-      // Fix: host shares full peer ID, but we display last 6 as "code"
-      // For joining, we need to handle this - we'll store full peerId in roomCode for host,
-      // and for guest we accept either the full ID or just the suffix
-      const targetId = code.trim();
-      
-      // Try connecting - if code is 6 chars, we need the full peer ID
-      // We'll try as-is first (full peer ID pasted), then handle error
-      const connection = peer.connect(targetId, { reliable: true });
+      const connection = peer.connect(normalizedCode, { reliable: true });
       handleConnection(connection);
+
+      // 15-second timeout — if no open event fires, show a helpful error
+      connectTimeoutRef.current = window.setTimeout(() => {
+        if (!isConnected) {
+          setError('Could not reach the room. Make sure the code is correct and the host is waiting.');
+          cleanupState();
+        }
+      }, 15000);
     });
 
-    peer.on('error', (err) => {
-      console.error('Guest peer error:', err);
-      setError('Room not found. Check the code and try again.');
+    peer.on('error', (err: any) => {
+      console.warn('Guest peer error:', err);
+      if (err.type === 'peer-unavailable') {
+        setError('Room not found. Double-check the code and make sure your partner is hosting.');
+      } else {
+        setError('Connection failed. Check your internet and try again.');
+      }
       cleanupState();
     });
-  };
+  }, [handleConnection, isConnected]);
 
   const sendGameAction = useCallback((state: any) => {
     setGameState(state);
@@ -231,7 +279,7 @@ export const PeerProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setError(null);
   };
 
-  // Re-send name when connected (handles race conditions)
+  // Re-send name on connection (handles race conditions)
   useEffect(() => {
     if (isConnected && playerName) {
       const timer = setTimeout(() => {

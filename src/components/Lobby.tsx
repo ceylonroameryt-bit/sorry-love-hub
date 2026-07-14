@@ -26,7 +26,7 @@ interface Props {
 
 export const Lobby: React.FC<Props> = ({ onSelectLocalGame }) => {
   const {
-    peerId, roomCode, isConnected, isHostReady, isConnecting, role,
+    roomCode, isConnected, isHostReady, isConnecting, role,
     playerName, opponentName, chatMessages, error,
     setPlayerName, hostRoom, joinRoom, selectGame, sendChatMessage, disconnect, clearError,
   } = useGamePeer();
@@ -56,7 +56,7 @@ export const Lobby: React.FC<Props> = ({ onSelectLocalGame }) => {
   };
 
   const handleCopy = () => {
-    const code = peerId || roomCode || '';
+    const code = roomCode || '';
     navigator.clipboard.writeText(code).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
@@ -178,13 +178,14 @@ export const Lobby: React.FC<Props> = ({ onSelectLocalGame }) => {
               <h3 className="font-cute" style={{ color: '#4c1d95', margin: 0, textAlign: 'center', fontSize: '1.1rem' }}>Join Room</h3>
               <input
                 className="input-cute"
-                placeholder="Paste room code..."
+                placeholder="e.g. STAR28"
                 value={inputCode}
-                onChange={e => setInputCode(e.target.value)}
+                maxLength={6}
+                onChange={e => setInputCode(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''))}
                 onKeyDown={e => e.key === 'Enter' && handleJoin()}
-                style={{ textAlign: 'center', fontSize: '0.9rem' }}
+                style={{ textAlign: 'center', fontSize: '1.2rem', letterSpacing: '0.2em', fontWeight: 700, fontFamily: 'monospace' }}
               />
-              <button onClick={handleJoin} disabled={!inputName.trim() || !inputCode.trim()} className="btn-cute btn-cute-secondary" style={{ width: '100%', justifyContent: 'center', fontSize: '0.9rem' }}>
+              <button onClick={handleJoin} disabled={!inputName.trim() || inputCode.length < 6} className="btn-cute btn-cute-secondary" style={{ width: '100%', justifyContent: 'center', fontSize: '0.9rem' }}>
                 Join Room 🔗
               </button>
             </div>
@@ -195,26 +196,50 @@ export const Lobby: React.FC<Props> = ({ onSelectLocalGame }) => {
       {/* ── WAITING STATE ── */}
       {isWaiting && (
         <div style={{ maxWidth: '520px', margin: '0 auto' }}>
-          {role === 'host' && isHostReady && peerId ? (
+          {role === 'host' && isHostReady && roomCode ? (
             <div className="card-cute" style={{ textAlign: 'center', padding: '2rem 1.5rem', animation: 'pop-in 0.4s ease' }}>
               <div style={{ fontSize: '2.2rem', marginBottom: '0.8rem', animation: 'float 2s ease-in-out infinite' }}>🏠✨</div>
-              <h2 className="font-cute" style={{ color: '#4c1d95', margin: '0 0 0.4rem', fontSize: '1.5rem' }}>Room is Ready!</h2>
-              <p style={{ color: '#6b7280', marginBottom: '1.2rem', fontSize: '0.9rem' }}>Share this code with your partner:</p>
+              <h2 className="font-cute" style={{ color: '#4c1d95', margin: '0 0 0.3rem', fontSize: '1.5rem' }}>Room is Ready!</h2>
+              <p style={{ color: '#6b7280', marginBottom: '1.2rem', fontSize: '0.9rem' }}>Tell your partner to type this code:</p>
+
+              {/* Big easy-to-read room code */}
               <div style={{
-                background: '#f5f3ff', border: '2px solid #c4b5fd', borderRadius: '14px',
-                padding: '0.9rem 1.2rem', marginBottom: '1rem',
-                display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.8rem',
+                background: 'linear-gradient(135deg, #f5f3ff, #ede9fe)',
+                border: '3px solid #a78bfa',
+                borderRadius: '20px',
+                padding: '1.2rem 2rem',
+                marginBottom: '0.8rem',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: '1rem',
               }}>
-                <code style={{ fontSize: '0.72rem', color: '#4c1d95', wordBreak: 'break-all', textAlign: 'left', flex: 1, fontFamily: 'monospace', fontWeight: 700 }}>
-                  {peerId}
+                <code style={{
+                  fontSize: '2.4rem',
+                  color: '#4c1d95',
+                  fontFamily: 'monospace',
+                  fontWeight: 900,
+                  letterSpacing: '0.25em',
+                  flex: 1,
+                  textAlign: 'center',
+                }}>
+                  {roomCode}
                 </code>
-                <button onClick={handleCopy} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#7c3aed', padding: '4px', flexShrink: 0 }} title="Copy">
-                  {copied ? <Check size={20} color="#10b981" /> : <Copy size={20} />}
+                <button
+                  onClick={handleCopy}
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#7c3aed', padding: '4px', flexShrink: 0 }}
+                  title="Copy code"
+                >
+                  {copied ? <Check size={24} color="#10b981" /> : <Copy size={24} />}
                 </button>
               </div>
-              <p style={{ color: '#8b5cf6', fontSize: '0.88rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '5px' }}>
+              <p style={{ color: '#a78bfa', fontSize: '0.8rem', marginBottom: '1.2rem' }}>
+                6-letter code • works on any WiFi or mobile data 🌍
+              </p>
+
+              <p style={{ color: '#8b5cf6', fontSize: '0.9rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '5px' }}>
                 <span style={{ animation: 'pulse-gentle 1s infinite', display: 'inline-block' }}>💜</span>
-                Waiting for partner...
+                Waiting for your partner...
               </p>
               <button onClick={disconnect} className="btn-cute btn-cute-secondary" style={{ marginTop: '1.2rem', padding: '0.45rem 1.2rem', fontSize: '0.88rem' }}>
                 Cancel
@@ -229,7 +254,9 @@ export const Lobby: React.FC<Props> = ({ onSelectLocalGame }) => {
                 {role === 'guest' ? 'Connecting...' : 'Setting up room...'}
               </h2>
               <p style={{ color: '#6b7280', fontSize: '0.9rem' }}>
-                {role === 'guest' ? "Reaching your partner's room, please wait." : 'Connecting to peer network...'}
+                {role === 'guest'
+                  ? 'Reaching your partner across the internet, please wait…'
+                  : 'Getting your room ready…'}
               </p>
               <button onClick={disconnect} className="btn-cute btn-cute-secondary" style={{ marginTop: '1.2rem' }}>Cancel</button>
             </div>
