@@ -119,7 +119,7 @@ export const PeerProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const handleConnection = useCallback((connection: DataConnection) => {
     connRef.current = connection;
 
-    connection.on('open', () => {
+    const handleOpen = () => {
       // ✅ Clear the join timeout HERE — the connection is actually open now
       if (connectTimeoutRef.current) {
         clearTimeout(connectTimeoutRef.current);
@@ -128,7 +128,13 @@ export const PeerProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setIsConnecting(false);
       setIsConnected(true);
       connection.send({ type: 'SYNC_NAMES', payload: { name: playerNameRef.current } });
-    });
+    };
+
+    if (connection.open) {
+      handleOpen();
+    } else {
+      connection.on('open', handleOpen);
+    }
 
     connection.on('data', (raw: any) => {
       const data = raw as GameEvent;
