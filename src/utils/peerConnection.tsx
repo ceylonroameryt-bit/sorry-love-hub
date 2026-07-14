@@ -27,7 +27,13 @@ const ICE_SERVERS = [
   }
 ];
 
-const PEER_CONFIG = { config: { iceServers: ICE_SERVERS } };
+const PEER_CONFIG = {
+  host: '0.peerjs.com',
+  port: 443,
+  secure: true,
+  config: { iceServers: ICE_SERVERS },
+  debug: 1,
+};
 
 // ─── Short room code generator ────────────────────────────────────────────────
 // Generates a 6-char code like "LOVE47" — this becomes the actual Peer ID,
@@ -116,13 +122,12 @@ export const PeerProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const handleConnection = useCallback((connection: DataConnection) => {
     connRef.current = connection;
 
-    // Clear any pending timeout
-    if (connectTimeoutRef.current) {
-      clearTimeout(connectTimeoutRef.current);
-      connectTimeoutRef.current = null;
-    }
-
     connection.on('open', () => {
+      // ✅ Clear the join timeout HERE — the connection is actually open now
+      if (connectTimeoutRef.current) {
+        clearTimeout(connectTimeoutRef.current);
+        connectTimeoutRef.current = null;
+      }
       setIsConnecting(false);
       setIsConnected(true);
       connection.send({ type: 'SYNC_NAMES', payload: { name: playerNameRef.current } });
@@ -214,15 +219,33 @@ export const PeerProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     peer.on('error', (err: any) => {
       console.warn('Host peer error:', err);
-      peerRef.current = null;
 
       if (err.type === 'unavailable-id') {
+        peerRef.current = null;
         // ID collision on broker — silently retry with a new code
         hostRoom(name, generateRoomCode());
-      } else {
-        setError('Could not create room. Check your internet and try again.');
-        cleanupState();
+        return;
       }
+
+      // If we are already connected to a partner, signaling server drops don't matter!
+      if (connRef.current && connRef.current.open) {
+        console.log('Ignoring signaling error since data channel is already active.');
+        return;
+      }
+
+      // Handle socket/network errors by trying to reconnect rather than destroying the room
+      if (err.type === 'socket-error' || err.type === 'socket-closed' || err.type === 'network') {
+        console.log('Host signaling socket error. Attempting silent reconnect...');
+        setTimeout(() => {
+          if (peerRef.current && !peerRef.current.destroyed && peerRef.current.disconnected) {
+            peerRef.current.reconnect();
+          }
+        }, 3000);
+        return;
+      }
+
+      setError(`Could not create room: ${err.message || err.type}. Please try again.`);
+      cleanupState();
     });
 
     peer.on('disconnected', () => {
@@ -249,28 +272,49 @@ export const PeerProvider: React.FC<{ children: React.ReactNode }> = ({ children
     peerRef.current = peer;
 
     peer.on('open', () => {
-      const connection = peer.connect(normalizedCode, { reliable: true });
+      const connection = peer.connect(normalizedCode, {
+        reliable: true,
+        // Serialization 'json' works reliably across all browsers
+        serialization: 'json',
+      });
       handleConnection(connection);
 
-      // 15-second timeout — if no open event fires, show a helpful error
+      // 30-second timeout. This fires only if connection.on('open') NEVER clears it.
+      // We use 30s because TURN relay negotiation across continents can be slow.
+      // ✅ No stale closure issue — we don't check any React state here.
       connectTimeoutRef.current = window.setTimeout(() => {
-        if (!isConnected) {
+        // Only show error if we are still not connected (connRef tells us the truth)
+        if (!connRef.current?.open) {
           setError('Could not reach the room. Make sure the code is correct and the host is waiting.');
           cleanupState();
         }
-      }, 15000);
+      }, 30000);
     });
 
     peer.on('error', (err: any) => {
       console.warn('Guest peer error:', err);
+
+      if (connRef.current && connRef.current.open) {
+        console.log('Ignoring signaling error since data channel is already active.');
+        return;
+      }
+
       if (err.type === 'peer-unavailable') {
         setError('Room not found. Double-check the code and make sure your partner is hosting.');
+      } else if (err.type === 'socket-error' || err.type === 'socket-closed' || err.type === 'network') {
+        setError('Signaling server temporarily offline. Retrying connection...');
+        setTimeout(() => {
+          if (peerRef.current && !peerRef.current.destroyed && peerRef.current.disconnected) {
+            peerRef.current.reconnect();
+          }
+        }, 3000);
+        return;
       } else {
         setError('Connection failed. Check your internet and try again.');
       }
       cleanupState();
     });
-  }, [handleConnection, isConnected]);
+  }, [handleConnection]);
 
   const sendGameAction = useCallback((state: any) => {
     setGameState(state);
