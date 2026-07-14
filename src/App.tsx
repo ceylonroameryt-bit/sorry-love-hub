@@ -16,6 +16,21 @@ import { OfflineLove2048 } from './components/OfflineLove2048';
 import { OfflineDoodle } from './components/OfflineDoodle';
 import { CouplesQuiz } from './components/CouplesQuiz';
 import { EmojiBattle } from './components/EmojiBattle';
+import { OfflineSimonSays } from './components/OfflineSimonSays';
+import { OfflineTypingSpeed } from './components/OfflineTypingSpeed';
+import { OfflineWordScramble } from './components/OfflineWordScramble';
+import { OfflineQuickMath } from './components/OfflineQuickMath';
+import { OfflineSpinWheel } from './components/OfflineSpinWheel';
+import { OfflineSlidingPuzzle } from './components/OfflineSlidingPuzzle';
+import { OfflineBubblePop } from './components/OfflineBubblePop';
+import { OfflineColorMatch } from './components/OfflineColorMatch';
+import { OfflineFlappyHeart } from './components/OfflineFlappyHeart';
+import { OfflineTriviaQuiz } from './components/OfflineTriviaQuiz';
+import { TruthOrDare } from './components/TruthOrDare';
+import { WouldYouRather } from './components/WouldYouRather';
+import { ReactionRace } from './components/ReactionRace';
+import { NumberDuel } from './components/NumberDuel';
+import { TriviaBattle } from './components/TriviaBattle';
 import { Heart, BookOpen, Gamepad2 } from 'lucide-react';
 import './App.css';
 
@@ -81,6 +96,16 @@ const MainAppContent: React.FC = () => {
         {isPlayingLocal && localGame === 'offline-snake' && <OfflineSnake onBack={() => setLocalGame(null)} />}
         {isPlayingLocal && localGame === 'offline-love2048' && <OfflineLove2048 onBack={() => setLocalGame(null)} />}
         {isPlayingLocal && localGame === 'offline-doodle' && <OfflineDoodle onBack={() => setLocalGame(null)} />}
+        {isPlayingLocal && localGame === 'offline-simon' && <OfflineSimonSays onBack={() => setLocalGame(null)} />}
+        {isPlayingLocal && localGame === 'offline-typing' && <OfflineTypingSpeed onBack={() => setLocalGame(null)} />}
+        {isPlayingLocal && localGame === 'offline-scramble' && <OfflineWordScramble onBack={() => setLocalGame(null)} />}
+        {isPlayingLocal && localGame === 'offline-math' && <OfflineQuickMath onBack={() => setLocalGame(null)} />}
+        {isPlayingLocal && localGame === 'offline-spin' && <OfflineSpinWheel onBack={() => setLocalGame(null)} />}
+        {isPlayingLocal && localGame === 'offline-slide' && <OfflineSlidingPuzzle onBack={() => setLocalGame(null)} />}
+        {isPlayingLocal && localGame === 'offline-bubble' && <OfflineBubblePop onBack={() => setLocalGame(null)} />}
+        {isPlayingLocal && localGame === 'offline-color' && <OfflineColorMatch onBack={() => setLocalGame(null)} />}
+        {isPlayingLocal && localGame === 'offline-flappy' && <OfflineFlappyHeart onBack={() => setLocalGame(null)} />}
+        {isPlayingLocal && localGame === 'offline-trivia' && <OfflineTriviaQuiz onBack={() => setLocalGame(null)} />}
 
         {/* Online games */}
         {!isPlayingLocal && !activeGame && <Lobby onSelectLocalGame={setLocalGame} />}
@@ -90,6 +115,11 @@ const MainAppContent: React.FC = () => {
         {!isPlayingLocal && activeGame === 'rps' && <RockPaperScissors />}
         {!isPlayingLocal && activeGame === 'couples-quiz' && <CouplesQuiz />}
         {!isPlayingLocal && activeGame === 'emoji-battle' && <EmojiBattle />}
+        {!isPlayingLocal && activeGame === 'truth-or-dare' && <TruthOrDare />}
+        {!isPlayingLocal && activeGame === 'would-you-rather' && <WouldYouRather />}
+        {!isPlayingLocal && activeGame === 'reaction-race' && <ReactionRace />}
+        {!isPlayingLocal && activeGame === 'number-duel' && <NumberDuel />}
+        {!isPlayingLocal && activeGame === 'trivia-battle' && <TriviaBattle />}
       </main>
 
       <footer style={{

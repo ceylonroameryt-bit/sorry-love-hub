@@ -12,6 +12,11 @@ const ONLINE_GAMES = [
   { id: 'rps', title: 'Paw Clash ✊', desc: 'Classic Rock Paper Scissors with cute cat paws!', emoji: '✊', color: '#5b21b6' },
   { id: 'couples-quiz', title: 'Couples Quiz 💬', desc: 'How well do you know your partner? Ask and guess secret answers!', emoji: '💬', color: '#ec4899' },
   { id: 'emoji-battle', title: 'Emoji Battle 🎴', desc: 'Race against time to solve cute emoji riddles together!', emoji: '🎴', color: '#d97706' },
+  { id: 'truth-or-dare', title: 'Truth or Dare 🤫', desc: 'Pick Truth or Dare and get fun relationship prompts!', emoji: '🤫', color: '#db2777' },
+  { id: 'would-you-rather', title: 'Would You Rather 🤔', desc: 'Answer questions in secret and see how much you match!', emoji: '🤔', color: '#2563eb' },
+  { id: 'reaction-race', title: 'Reaction Race ⚡', desc: 'Tap the screen as fast as you can when the color changes!', emoji: '⚡', color: '#059669' },
+  { id: 'number-duel', title: 'Number Duel 🔢', desc: 'Close to Target without going over. Double choice numbers duel!', emoji: '🔢', color: '#ca8a04' },
+  { id: 'trivia-battle', title: 'Trivia Battle 🧠', desc: 'Answer general trivia questions faster than your partner!', emoji: '🧠', color: '#7c3aed' },
 ];
 
 const OFFLINE_GAMES = [
@@ -23,6 +28,16 @@ const OFFLINE_GAMES = [
   { id: 'offline-snake', title: 'Snake Love 🐍', desc: 'Control the snake, eat sweet hearts and grow without hitting the wall!', emoji: '🐍', color: '#7c3aed' },
   { id: 'offline-love2048', title: 'Love 2048 🌟', desc: 'Merge the love emojis to reach the ultimate star tile!', emoji: '🌟', color: '#db2777' },
   { id: 'offline-doodle', title: 'Doodle Quiz 🎨', desc: 'Pass and play! Draw a prompt word while your partner guesses!', emoji: '🎨', color: '#2563eb' },
+  { id: 'offline-simon', title: 'Simon Says 🎯', desc: 'Watch the flashing color patterns and repeat them exactly!', emoji: '🎯', color: '#059669' },
+  { id: 'offline-typing', title: 'Typing Speed ⌨️', desc: 'Type love quotes as fast as you can. Measure WPM and accuracy!', emoji: '⌨️', color: '#7c3aed' },
+  { id: 'offline-scramble', title: 'Word Scramble 🔀', desc: 'Unscramble secret words from categories using letter blocks!', emoji: '🔀', color: '#db2777' },
+  { id: 'offline-math', title: 'Quick Math ⚡', desc: 'Solve math questions as fast as possible in 30 seconds!', emoji: '⚡', color: '#ca8a04' },
+  { id: 'offline-spin', title: 'Spin the Wheel 🎡', desc: 'Spin a custom wheel to get cute relationship prompts or actions!', emoji: '🎡', color: '#6d28d9' },
+  { id: 'offline-slide', title: 'Slide Puzzle 🧩', desc: 'Order numbers 1 to 8 by sliding adjacent tiles in a 3x3 grid!', emoji: '🧩', color: '#2563eb' },
+  { id: 'offline-bubble', title: 'Bubble Pop 🫧', desc: 'Pop bubbles containing numbers in ascending order as fast as possible!', emoji: '🫧', color: '#ec4899' },
+  { id: 'offline-color', title: 'Stroop Match 🔴', desc: 'Stroop cognitive test. Match colored words with their ink color!', emoji: '🔴', color: '#dc2626' },
+  { id: 'offline-flappy', title: 'Flappy Heart 💖', desc: 'Flap a cute heart to fly between columns without crashing!', emoji: '💖', color: '#be123c' },
+  { id: 'offline-trivia', title: 'Trivia Quiz 🧠', desc: 'Test your knowledge with multiple choice general trivia questions!', emoji: '🧠', color: '#4c1d95' },
 ];
 
 interface Props {
