@@ -11,6 +11,11 @@ import { OfflineMemoryMatch } from './components/OfflineMemoryMatch';
 import { OfflineBoyfriendBonk } from './components/OfflineBoyfriendBonk';
 import { OfflineCupidCatch } from './components/OfflineCupidCatch';
 import { OfflineTicTacToe } from './components/OfflineTicTacToe';
+import { OfflineSnake } from './components/OfflineSnake';
+import { OfflineLove2048 } from './components/OfflineLove2048';
+import { OfflineDoodle } from './components/OfflineDoodle';
+import { CouplesQuiz } from './components/CouplesQuiz';
+import { EmojiBattle } from './components/EmojiBattle';
 import { Heart, BookOpen, Gamepad2 } from 'lucide-react';
 import './App.css';
 
@@ -73,6 +78,9 @@ const MainAppContent: React.FC = () => {
         {isPlayingLocal && localGame === 'offline-bonk' && <OfflineBoyfriendBonk onBack={() => setLocalGame(null)} />}
         {isPlayingLocal && localGame === 'offline-cupid' && <OfflineCupidCatch onBack={() => setLocalGame(null)} />}
         {isPlayingLocal && localGame === 'offline-ttt' && <OfflineTicTacToe onBack={() => setLocalGame(null)} />}
+        {isPlayingLocal && localGame === 'offline-snake' && <OfflineSnake onBack={() => setLocalGame(null)} />}
+        {isPlayingLocal && localGame === 'offline-love2048' && <OfflineLove2048 onBack={() => setLocalGame(null)} />}
+        {isPlayingLocal && localGame === 'offline-doodle' && <OfflineDoodle onBack={() => setLocalGame(null)} />}
 
         {/* Online games */}
         {!isPlayingLocal && !activeGame && <Lobby onSelectLocalGame={setLocalGame} />}
@@ -80,6 +88,8 @@ const MainAppContent: React.FC = () => {
         {!isPlayingLocal && activeGame === 'cat-catch' && <CatCatch />}
         {!isPlayingLocal && activeGame === 'boyfriend-hit' && <BoyfriendHit />}
         {!isPlayingLocal && activeGame === 'rps' && <RockPaperScissors />}
+        {!isPlayingLocal && activeGame === 'couples-quiz' && <CouplesQuiz />}
+        {!isPlayingLocal && activeGame === 'emoji-battle' && <EmojiBattle />}
       </main>
 
       <footer style={{

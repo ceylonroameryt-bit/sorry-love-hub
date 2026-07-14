@@ -10,6 +10,8 @@ const ONLINE_GAMES = [
   { id: 'cat-catch', title: 'Cat Catching 🐱', desc: 'Move your basket to catch falling cats, hearts & yarn balls!', emoji: '🐱', color: '#8b5cf6' },
   { id: 'boyfriend-hit', title: 'Whack-a-BF 🔨', desc: 'Boyfriend pops from holes — girlfriend smacks him with a mallet!', emoji: '🔨', color: '#6d28d9' },
   { id: 'rps', title: 'Paw Clash ✊', desc: 'Classic Rock Paper Scissors with cute cat paws!', emoji: '✊', color: '#5b21b6' },
+  { id: 'couples-quiz', title: 'Couples Quiz 💬', desc: 'How well do you know your partner? Ask and guess secret answers!', emoji: '💬', color: '#ec4899' },
+  { id: 'emoji-battle', title: 'Emoji Battle 🎴', desc: 'Race against time to solve cute emoji riddles together!', emoji: '🎴', color: '#d97706' },
 ];
 
 const OFFLINE_GAMES = [
@@ -18,6 +20,9 @@ const OFFLINE_GAMES = [
   { id: 'offline-bonk', title: 'Whack-a-BF Solo 🔨', desc: 'Bonk the boyfriend moles as fast as you can in 30 seconds!', emoji: '🔨', color: '#059669' },
   { id: 'offline-cupid', title: "Cupid's Catch 💖", desc: 'Catch falling hearts, stars & cupcakes. Dodge the bombs!', emoji: '💖', color: '#ec4899' },
   { id: 'offline-ttt', title: 'Tic-Tac-Love 💕', desc: 'Play Tic-Tac-Toe against an AI bot. Easy or unbeatable!', emoji: '💕', color: '#d97706' },
+  { id: 'offline-snake', title: 'Snake Love 🐍', desc: 'Control the snake, eat sweet hearts and grow without hitting the wall!', emoji: '🐍', color: '#7c3aed' },
+  { id: 'offline-love2048', title: 'Love 2048 🌟', desc: 'Merge the love emojis to reach the ultimate star tile!', emoji: '🌟', color: '#db2777' },
+  { id: 'offline-doodle', title: 'Doodle Quiz 🎨', desc: 'Pass and play! Draw a prompt word while your partner guesses!', emoji: '🎨', color: '#2563eb' },
 ];
 
 interface Props {

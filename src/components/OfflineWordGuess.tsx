@@ -1,52 +1,7 @@
 import React, { useState, useCallback } from 'react';
 import { ArrowLeft, RefreshCw, Heart, HelpCircle, Sparkles } from 'lucide-react';
-
-interface WordEntry { word: string; hint: string; }
-
-const WORD_BANK: Record<string, WordEntry[]> = {
-  '💜 Love & Affection': [
-    { word: 'FOREVER', hint: 'How long I want to be with you' },
-    { word: 'SWEETHEART', hint: 'A loving nickname 💕' },
-    { word: 'DEVOTION', hint: 'Deep love and loyalty' },
-    { word: 'DARLING', hint: 'A word of endearment' },
-    { word: 'CHERISH', hint: 'To hold something dearly' },
-    { word: 'ADORE', hint: 'To love intensely' },
-    { word: 'ROMANCE', hint: 'Love with butterflies ✨' },
-    { word: 'TENDER', hint: 'Gentle and loving touch' },
-  ],
-  '🐾 Cute Animals': [
-    { word: 'KITTEN', hint: 'A baby cat 🐱' },
-    { word: 'PUPPY', hint: 'A baby dog 🐶' },
-    { word: 'PANDA', hint: 'Black and white bear that loves bamboo' },
-    { word: 'BUNNY', hint: 'Fluffy ears and a cottontail 🐰' },
-    { word: 'KOALA', hint: 'Australian tree-hugger 🌿' },
-    { word: 'PENGUIN', hint: 'Tuxedo bird from the south pole 🐧' },
-    { word: 'HAMSTER', hint: 'Chubby cheeks, loves wheels 🐹' },
-    { word: 'DUCKLING', hint: 'A baby duck who follows mama 🐥' },
-  ],
-  '🍓 Sweet Treats': [
-    { word: 'CHOCOLATE', hint: 'Sweet, dark, and melts in your mouth 🍫' },
-    { word: 'CUPCAKE', hint: 'A tiny frosted cake 🧁' },
-    { word: 'STRAWBERRY', hint: 'Red heart-shaped fruit 🍓' },
-    { word: 'HONEY', hint: 'Sweet stuff bees make 🍯' },
-    { word: 'CARAMEL', hint: 'Sticky golden sweetness' },
-    { word: 'MOCHI', hint: 'Soft Japanese sweet rice cake' },
-    { word: 'TRUFFLE', hint: 'Fancy chocolate ball 🍬' },
-    { word: 'MACARON', hint: 'Colourful French sandwich cookie' },
-  ],
-  '🌟 Dreams & Memories': [
-    { word: 'LAUGHTER', hint: 'The best sound in the world 😂' },
-    { word: 'FUTURE', hint: 'Where we are going together ✨' },
-    { word: 'ADVENTURE', hint: 'An exciting journey together 🗺️' },
-    { word: 'SUNRISE', hint: 'A beautiful beginning 🌅' },
-    { word: 'JOURNEY', hint: 'Life is one big one 🛤️' },
-    { word: 'MEMORY', hint: 'A moment kept in your heart 💭' },
-    { word: 'MAGIC', hint: 'What we have together ✨' },
-    { word: 'WONDER', hint: 'The feeling of awe and amazement' },
-  ],
-};
-
-const ALL_CATEGORIES = Object.keys(WORD_BANK);
+import { WORD_BANK, ALL_CATEGORIES } from '../utils/wordBank';
+import type { WordEntry } from '../utils/wordBank';
 const ALPHA = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
 const MAX_STRIKES = 6;
 
