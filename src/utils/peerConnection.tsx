@@ -28,9 +28,6 @@ const ICE_SERVERS = [
 ];
 
 const PEER_CONFIG = {
-  host: '0.peerjs.com',
-  port: 443,
-  secure: true,
   config: { iceServers: ICE_SERVERS },
   debug: 1,
 };
@@ -274,8 +271,6 @@ export const PeerProvider: React.FC<{ children: React.ReactNode }> = ({ children
     peer.on('open', () => {
       const connection = peer.connect(normalizedCode, {
         reliable: true,
-        // Serialization 'json' works reliably across all browsers
-        serialization: 'json',
       });
       handleConnection(connection);
 
