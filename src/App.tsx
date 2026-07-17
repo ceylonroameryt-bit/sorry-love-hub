@@ -35,6 +35,7 @@ import { OfflineHangman } from './components/OfflineHangman';
 import { OfflineFastFacts } from './components/OfflineFastFacts';
 import { OfflineLoveCalc } from './components/OfflineLoveCalc';
 import { OfflineGuessPrize } from './components/OfflineGuessPrize';
+import { OfflineLoveClicker } from './components/OfflineLoveClicker';
 import { EmojiTyperace } from './components/EmojiTyperace';
 import { HotOrNot } from './components/HotOrNot';
 import { FinishSentence } from './components/FinishSentence';
@@ -73,7 +74,7 @@ const MainAppContent: React.FC = () => {
           }}>
             <Heart size={18} fill="#fff" color="#fff" />
           </div>
-          <span className="font-cute app-title">Sorry & Love Hub 💜</span>
+          <span className="font-cute app-title">Ape Punchi Game Room (අපේ පුංචි ගේම් රූම්) 🎮</span>
         </div>
 
         <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
@@ -120,6 +121,7 @@ const MainAppContent: React.FC = () => {
         {isPlayingLocal && localGame === 'offline-fastfacts' && <OfflineFastFacts onBack={() => setLocalGame(null)} />}
         {isPlayingLocal && localGame === 'offline-lovecalc' && <OfflineLoveCalc onBack={() => setLocalGame(null)} />}
         {isPlayingLocal && localGame === 'offline-guessprize' && <OfflineGuessPrize onBack={() => setLocalGame(null)} />}
+        {isPlayingLocal && localGame === 'offline-loveclicker' && <OfflineLoveClicker onBack={() => setLocalGame(null)} />}
 
         {/* Online games */}
         {!isPlayingLocal && !activeGame && <Lobby onSelectLocalGame={setLocalGame} />}

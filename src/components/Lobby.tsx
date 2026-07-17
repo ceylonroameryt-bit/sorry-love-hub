@@ -47,6 +47,7 @@ const OFFLINE_GAMES = [
   { id: 'offline-fastfacts', title: 'Fast Facts ⚡', desc: 'True or False rapid-fire quiz — 60 seconds, 30 wild facts!', emoji: '⚡', color: '#059669' },
   { id: 'offline-lovecalc', title: 'Love Calculator 💕', desc: 'Answer 10 fun personality questions to reveal your love score!', emoji: '💕', color: '#ec4899' },
   { id: 'offline-guessprize', title: 'Guess the Price 💰', desc: 'Guess how much everyday items cost — closest guess wins points!', emoji: '💰', color: '#ca8a04' },
+  { id: 'offline-loveclicker', title: 'Love Clicker 💖', desc: 'Tap the giant heart to spawn sweet emojis and buy cute auto-generation upgrades!', emoji: '💖', color: '#ec4899' },
 ];
 
 interface Props {
@@ -107,9 +108,9 @@ export const Lobby: React.FC<Props> = ({ onSelectLocalGame }) => {
       <div style={{ textAlign: 'center', marginBottom: '2rem' }}>
         <h1 className="heading-xl lobby-title" style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
           <Heart size={32} fill="#7c3aed" color="#7c3aed" style={{ animation: 'pulse-gentle 1.5s infinite', flexShrink: 0 }} />
-          Our Game Room
+          Ape Punchi Game Room (අපේ පුංචි ගේම් රූම්) 🎮
         </h1>
-        <p style={{ color: '#6b7280', fontSize: '1rem', margin: 0 }}>Play online together or enjoy solo offline games 💜</p>
+        <p style={{ color: '#6b7280', fontSize: '1rem', margin: 0 }}>Play online together or enjoy solo offline games 🧸🌸</p>
       </div>
 
       {/* Error Banner */}
