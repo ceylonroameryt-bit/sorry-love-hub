@@ -14,6 +14,8 @@ const ICE_SERVERS: RTCIceServer[] = [
   { urls: 'stun:stun2.l.google.com:19302' },
   { urls: 'stun:stun3.l.google.com:19302' },
   { urls: 'stun:stun.cloudflare.com:3478' },
+  { urls: 'stun:openrelay.metered.ca:80' },
+  { urls: 'stun:openrelay.metered.ca:443' },
   // UDP relay — fastest path
   {
     urls: 'turn:openrelay.metered.ca:80',
@@ -46,9 +48,9 @@ const PEER_CONFIG = {
   path: '/',
   secure: true,
   pingInterval: 5000, // Keep socket alive with 5s pings
-  // iceCandidatePoolSize tells the browser to pre-gather ICE candidates
-  // before the offer is sent, which dramatically speeds up connection time.
-  config: { iceServers: ICE_SERVERS, iceCandidatePoolSize: 10 },
+  // Set iceCandidatePoolSize to 0 to prevent pre-gathered ICE candidates'
+  // NAT mapping ports from timing out on symmetric NAT/mobile data routers.
+  config: { iceServers: ICE_SERVERS, iceCandidatePoolSize: 0 },
   debug: 3, // Enable full debug logging for troubleshooting NAT/ICE issues
 };
 
