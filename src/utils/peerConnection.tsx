@@ -1,63 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
-import { Peer } from 'peerjs';
-import type { DataConnection } from 'peerjs';
-
-// ─── ICE / STUN / TURN config ─────────────────────────────────────────────────
-// Robust cross-country config for UK ↔ Sri Lanka (different NATs, mobile data).
-// We include:
-//   • Multiple STUN servers (Google + Cloudflare)
-//   • Multiple TURN variants: UDP port 80, TCP port 443, and TURNS (TLS) over 443
-//   • TURNS (TLS) is hardest for ISPs to block since it runs on port 443
-const ICE_SERVERS: RTCIceServer[] = [
-  { urls: 'stun:stun.l.google.com:19302' },
-  { urls: 'stun:stun1.l.google.com:19302' },
-  { urls: 'stun:stun2.l.google.com:19302' },
-  { urls: 'stun:stun3.l.google.com:19302' },
-  { urls: 'stun:stun.cloudflare.com:3478' },
-  { urls: 'stun:openrelay.metered.ca:80' },
-  { urls: 'stun:openrelay.metered.ca:443' },
-  // UDP relay — fastest path
-  {
-    urls: 'turn:openrelay.metered.ca:80',
-    username: 'openrelayproject',
-    credential: 'openrelayproject',
-  },
-  // TCP relay — bypasses UDP port blocks
-  {
-    urls: 'turn:openrelay.metered.ca:443?transport=tcp',
-    username: 'openrelayproject',
-    credential: 'openrelayproject',
-  },
-  // TURNS = TURN over TLS — runs on port 443 like HTTPS; almost never blocked
-  {
-    urls: 'turns:openrelay.metered.ca:443',
-    username: 'openrelayproject',
-    credential: 'openrelayproject',
-  },
-  // Additional TCP endpoint
-  {
-    urls: 'turn:openrelay.metered.ca:443',
-    username: 'openrelayproject',
-    credential: 'openrelayproject',
-  },
-];
-
-const PEER_CONFIG = {
-  host: '0.peerjs.com',
-  port: 443,
-  path: '/',
-  secure: true,
-  pingInterval: 5000, // Keep socket alive with 5s pings
-  // Set iceCandidatePoolSize to 0 to prevent pre-gathered ICE candidates'
-  // NAT mapping ports from timing out on symmetric NAT/mobile data routers.
-  config: { iceServers: ICE_SERVERS, iceCandidatePoolSize: 0 },
-  debug: 3, // Enable full debug logging for troubleshooting NAT/ICE issues
-};
-
+import mqtt from 'mqtt';
 
 // ─── Short room code generator ────────────────────────────────────────────────
-// Generates a 6-char code like "LOVE47" — this becomes the actual Peer ID,
-// so guests only need to type these 6 chars to connect.
 const CONSONANTS = 'BCDFGHJKLMNPRSTVWXYZ';
 const DIGITS = '0123456789';
 
@@ -73,7 +17,12 @@ export type GameEvent =
   | { type: 'SYNC_NAMES'; payload: { name: string } }
   | { type: 'SELECT_GAME'; payload: { gameId: string | null } }
   | { type: 'GAME_STATE'; payload: any }
-  | { type: 'CHAT'; payload: { text: string } };
+  | { type: 'CHAT'; payload: { text: string } }
+  | { type: 'JOIN_REQUEST'; payload: { name: string } }
+  | { type: 'JOIN_ACCEPT'; payload: { name: string } }
+  | { type: 'DISCONNECT' }
+  | { type: 'PING' }
+  | { type: 'PONG' };
 
 interface PeerContextType {
   peerId: string | null;
@@ -116,14 +65,17 @@ export const PeerProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [error, setError] = useState<string | null>(null);
   const [gameState, setGameState] = useState<any>(null);
 
-  const peerRef = useRef<Peer | null>(null);
-  const connRef = useRef<DataConnection | null>(null);
+  const clientRef = useRef<any>(null);
   const playerNameRef = useRef(playerName);
+  const roleRef = useRef(role);
+  const roomCodeRef = useRef(roomCode);
   const connectTimeoutRef = useRef<number | null>(null);
+  const pingIntervalRef = useRef<number | null>(null);
+  const lastActiveRef = useRef<number>(Date.now());
 
-  useEffect(() => {
-    playerNameRef.current = playerName;
-  }, [playerName]);
+  useEffect(() => { playerNameRef.current = playerName; }, [playerName]);
+  useEffect(() => { roleRef.current = role; }, [role]);
+  useEffect(() => { roomCodeRef.current = roomCode; }, [roomCode]);
 
   const setPlayerName = (name: string) => {
     setPlayerNameState(name);
@@ -134,36 +86,80 @@ export const PeerProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const clearError = () => setError(null);
 
   const sendData = useCallback((data: GameEvent) => {
-    if (connRef.current && connRef.current.open) {
-      connRef.current.send(data);
+    if (clientRef.current?.connected && roomCodeRef.current) {
+      const sideTopic = roleRef.current === 'host' ? 'host-to-guest' : 'guest-to-host';
+      const topic = `sorry-love-hub/room/${roomCodeRef.current}/${sideTopic}`;
+      clientRef.current.publish(topic, JSON.stringify(data));
     }
   }, []);
 
-  const handleConnection = useCallback((connection: DataConnection) => {
-    connRef.current = connection;
-
-    const handleOpen = () => {
-      // ✅ Clear the join timeout HERE — the connection is actually open now
-      if (connectTimeoutRef.current) {
-        clearTimeout(connectTimeoutRef.current);
-        connectTimeoutRef.current = null;
-      }
-      setIsConnecting(false);
-      setIsConnected(true);
-      connection.send({ type: 'SYNC_NAMES', payload: { name: playerNameRef.current } });
-    };
-
-    if (connection.open) {
-      handleOpen();
-    } else {
-      connection.on('open', handleOpen);
+  const cleanupState = useCallback((errMsg?: string) => {
+    if (connectTimeoutRef.current) {
+      clearTimeout(connectTimeoutRef.current);
+      connectTimeoutRef.current = null;
     }
+    if (pingIntervalRef.current) {
+      clearInterval(pingIntervalRef.current);
+      pingIntervalRef.current = null;
+    }
+    if (clientRef.current) {
+      if (roomCodeRef.current) {
+        const sideTopic = roleRef.current === 'host' ? 'host-to-guest' : 'guest-to-host';
+        const topic = `sorry-love-hub/room/${roomCodeRef.current}/${sideTopic}`;
+        clientRef.current.publish(topic, JSON.stringify({ type: 'DISCONNECT' }));
+      }
+      clientRef.current.end(true);
+      clientRef.current = null;
+    }
+    setIsConnected(false);
+    setIsHostReady(false);
+    setIsConnecting(false);
+    setRole(null);
+    setPeerId(null);
+    setRoomCode(null);
+    setOpponentName('');
+    setActiveGameState(null);
+    setGameState(null);
+    if (errMsg) setError(errMsg);
+  }, []);
 
-    connection.on('data', (raw: any) => {
-      const data = raw as GameEvent;
-      if (!data?.type) return;
+  const handleMessage = useCallback((topic: string, message: Buffer) => {
+    try {
+      const data = JSON.parse(message.toString()) as GameEvent;
+      if (!data) return;
 
+      lastActiveRef.current = Date.now();
+
+      // Handle presence/handshake specifically
+      if (topic.endsWith('/presence') && roleRef.current === 'host') {
+        if (data.type === 'JOIN_REQUEST') {
+          setOpponentName(data.payload.name);
+          setIsConnected(true);
+          setIsHostReady(false);
+          setIsConnecting(false);
+          // Accept the join request immediately
+          const acceptTopic = `sorry-love-hub/room/${roomCodeRef.current}/host-to-guest`;
+          clientRef.current?.publish(
+            acceptTopic,
+            JSON.stringify({ type: 'JOIN_ACCEPT', payload: { name: playerNameRef.current } })
+          );
+        }
+        return;
+      }
+
+      // Handle direct messages
       switch (data.type) {
+        case 'JOIN_ACCEPT':
+          if (roleRef.current === 'guest') {
+            if (connectTimeoutRef.current) {
+              clearTimeout(connectTimeoutRef.current);
+              connectTimeoutRef.current = null;
+            }
+            setOpponentName(data.payload.name);
+            setIsConnected(true);
+            setIsConnecting(false);
+          }
+          break;
         case 'SYNC_NAMES':
           setOpponentName(data.payload.name);
           break;
@@ -177,223 +173,167 @@ export const PeerProvider: React.FC<{ children: React.ReactNode }> = ({ children
         case 'CHAT':
           setChatMessages(prev => [...prev, { sender: 'them', text: data.payload.text, timestamp: new Date() }]);
           break;
+        case 'DISCONNECT':
+          cleanupState('Partner disconnected 💔 Refresh and reconnect!');
+          break;
+        case 'PING':
+          sendData({ type: 'PONG' });
+          break;
+        case 'PONG':
+          // Keepalive verified
+          break;
       }
-    });
-
-    connection.on('close', () => {
-      cleanupState('Partner disconnected 💔 Refresh and reconnect!');
-    });
-
-    connection.on('error', () => {
-      setError('Connection error. Please try again.');
-    });
-  }, []);
-
-  const cleanupState = (errMsg?: string) => {
-    if (connectTimeoutRef.current) {
-      clearTimeout(connectTimeoutRef.current);
-      connectTimeoutRef.current = null;
+    } catch (e) {
+      console.error('Error parsing MQTT message:', e);
     }
-    connRef.current?.close();
-    connRef.current = null;
-    peerRef.current?.destroy();
-    peerRef.current = null;
-    setIsConnected(false);
-    setIsHostReady(false);
-    setIsConnecting(false);
-    setRole(null);
-    setPeerId(null);
-    setRoomCode(null);
-    setOpponentName('');
-    setActiveGameState(null);
-    setGameState(null);
-    if (errMsg) setError(errMsg);
-  };
+  }, [cleanupState, sendData]);
 
   // ─── HOST ──────────────────────────────────────────────────────────────────
-  // The host registers with a short custom code as the Peer ID (e.g. "STAR28").
-  // If the ID is already taken on the broker, we retry with a new code.
-  const hostRoom = useCallback((name: string, retryCode?: string) => {
+  const hostRoom = useCallback((name: string) => {
     if (!name.trim()) { setError('Please enter your name first!'); return; }
-    if (peerRef.current) return;
+    cleanupState();
 
-    setError(null);
     setIsConnecting(true);
     setRole('host');
 
-    const code = retryCode ?? generateRoomCode();
-    const peer = new Peer(code, PEER_CONFIG);
-    peerRef.current = peer;
-
-    peer.on('open', (id) => {
-      setPeerId(id);
-      setRoomCode(id); // ID is the code — clean & short
-      setIsConnecting(false);
-      setIsHostReady(true);
+    const code = generateRoomCode();
+    const client = mqtt.connect('wss://broker.emqx.io:8084/mqtt', {
+      clientId: 'sorry_love_host_' + Math.random().toString(16).substring(2, 10),
+      clean: true,
+      keepalive: 60,
     });
+    clientRef.current = client;
 
-    peer.on('connection', (conn) => {
-      setIsHostReady(false);
-      setIsConnecting(true); // Prevent host UI from reverting to home page during negotiation
-      handleConnection(conn);
-      // Send host name after a brief delay to ensure the data channel is ready
-      setTimeout(() => {
-        if (conn.open) {
-          conn.send({ type: 'SYNC_NAMES', payload: { name } });
+    client.on('connect', () => {
+      const presenceTopic = `sorry-love-hub/room/${code}/presence`;
+      const guestTopic = `sorry-love-hub/room/${code}/guest-to-host`;
+      
+      client.subscribe([presenceTopic, guestTopic], (err) => {
+        if (err) {
+          setError('Failed to setup game room. Try again.');
+          cleanupState();
+          return;
         }
-      }, 300);
+        setPeerId(code);
+        setRoomCode(code);
+        setIsConnecting(false);
+        setIsHostReady(true);
+      });
     });
 
-    peer.on('error', (err: any) => {
-      console.warn('Host peer error:', err);
+    client.on('message', handleMessage);
 
-      if (err.type === 'unavailable-id') {
-        peer.destroy();
-        peerRef.current = null;
-        // ID collision on broker — silently retry with a new code
-        hostRoom(name, generateRoomCode());
-        return;
-      }
-
-      // If we are already connected to a partner, signaling server drops don't matter!
-      if (connRef.current && connRef.current.open) {
-        console.log('Ignoring signaling error since data channel is already active.');
-        return;
-      }
-
-      // Handle socket/network errors by trying to reconnect rather than destroying the room
-      if (err.type === 'socket-error' || err.type === 'socket-closed' || err.type === 'network') {
-        console.log('Host signaling socket error. Attempting silent reconnect...');
-        setTimeout(() => {
-          if (peerRef.current && !peerRef.current.destroyed && peerRef.current.disconnected) {
-            peerRef.current.reconnect();
-          }
-        }, 3000);
-        return;
-      }
-
-      setError(`Could not create room: ${err.message || err.type}. Please try again.`);
+    client.on('error', (err) => {
+      console.error('Host broker error:', err);
+      setError('Server connection error. Please try again.');
       cleanupState();
     });
 
-    peer.on('disconnected', () => {
-      if (peerRef.current && !peerRef.current.destroyed) {
-        peerRef.current.reconnect();
+    client.on('close', () => {
+      // Clean up only if we are not actively connected/connecting
+      if (!clientRef.current?.connected && isConnected) {
+        cleanupState('Signaling server disconnected. Please try hosting again.');
       }
     });
-  }, [handleConnection]);
+
+  }, [cleanupState, handleMessage, isConnected]);
 
   // ─── JOIN ──────────────────────────────────────────────────────────────────
-  // Guest connects using the 6-char code which IS the host's Peer ID.
   const joinRoom = useCallback((name: string, code: string) => {
     if (!name.trim()) { setError('Please enter your name first!'); return; }
     if (!code.trim()) { setError('Please enter the room code!'); return; }
+    cleanupState();
 
     const normalizedCode = code.trim().toUpperCase();
-
-    setError(null);
     setIsConnecting(true);
     setRole('guest');
     setRoomCode(normalizedCode);
 
-    const peer = new Peer(PEER_CONFIG);
-    peerRef.current = peer;
+    const client = mqtt.connect('wss://broker.emqx.io:8084/mqtt', {
+      clientId: 'sorry_love_guest_' + Math.random().toString(16).substring(2, 10),
+      clean: true,
+      keepalive: 60,
+    });
+    clientRef.current = client;
 
-    peer.on('open', () => {
-      const connection = peer.connect(normalizedCode, {
-        reliable: true,
-      });
-      handleConnection(connection);
-
-      // ── ICE state monitoring ──────────────────────────────────────────────
-      // PeerJS wraps RTCPeerConnection — access it after a tick so it's created.
-      setTimeout(() => {
-        const rtc = (connection as any).peerConnection as RTCPeerConnection | undefined;
-        if (!rtc) return;
-
-        rtc.addEventListener('iceconnectionstatechange', () => {
-          const state = rtc.iceConnectionState;
-          console.log('[ICE] iceConnectionState →', state);
-
-          if (state === 'failed') {
-            // ICE has completely failed — no relay path found.
-            if (!connRef.current?.open) {
-              if (connectTimeoutRef.current) clearTimeout(connectTimeoutRef.current);
-              setError(
-                '🌐 Network relay failed. Make sure both devices have a stable internet connection, ' +
-                'or try switching from mobile data to WiFi and re-host the room.'
-              );
-              cleanupState();
-            }
-          }
-
-          if (state === 'disconnected') {
-            // Transient disconnect — give it 5s to recover before giving up
-            setTimeout(() => {
-              if (rtc.iceConnectionState === 'disconnected' || rtc.iceConnectionState === 'failed') {
-                if (!connRef.current?.open) {
-                  if (connectTimeoutRef.current) clearTimeout(connectTimeoutRef.current);
-                  setError('Connection lost. Please refresh and try again.');
-                  cleanupState();
-                }
-              }
-            }, 5000);
-          }
-        });
-
-        // ICE gathering watchdog — if still checking after 15s, TURN isn't helping
-        const gatherWatchdog = window.setTimeout(() => {
-          if (rtc.iceConnectionState === 'checking' && !connRef.current?.open) {
-            console.warn('[ICE] Still checking after 15s — TURN servers may be unreachable.');
-          }
-        }, 15000);
-
-        // Clear the watchdog if we connect successfully
-        const clearWatchdog = () => clearTimeout(gatherWatchdog);
-        rtc.addEventListener('iceconnectionstatechange', () => {
-          if (rtc.iceConnectionState === 'connected' || rtc.iceConnectionState === 'completed') {
-            clearWatchdog();
-          }
-        });
-      }, 100);
-
-      // 30-second timeout — final fallback if ICE never completes or fails.
-      connectTimeoutRef.current = window.setTimeout(() => {
-        if (!connRef.current?.open) {
-          setError(
-            'Could not reach the room. Make sure the room code is correct, ' +
-            'the host is waiting, and both of you are connected to the internet.'
-          );
+    client.on('connect', () => {
+      const hostTopic = `sorry-love-hub/room/${normalizedCode}/host-to-guest`;
+      client.subscribe(hostTopic, (err) => {
+        if (err) {
+          setError('Failed to connect to room. Try again.');
           cleanupState();
+          return;
         }
-      }, 30000);
+
+        // Send JOIN_REQUEST immediately on connect
+        const presenceTopic = `sorry-love-hub/room/${normalizedCode}/presence`;
+        client.publish(
+          presenceTopic,
+          JSON.stringify({ type: 'JOIN_REQUEST', payload: { name: playerNameRef.current } })
+        );
+
+        // Periodically resend join request in case host is still setting up (every 2s)
+        const joinRetry = setInterval(() => {
+          if (client.connected && !isConnected) {
+            client.publish(
+              presenceTopic,
+              JSON.stringify({ type: 'JOIN_REQUEST', payload: { name: playerNameRef.current } })
+            );
+          } else {
+            clearInterval(joinRetry);
+          }
+        }, 2000);
+      });
     });
 
+    client.on('message', handleMessage);
 
-    peer.on('error', (err: any) => {
-      console.warn('Guest peer error:', err);
-
-      if (connRef.current && connRef.current.open) {
-        console.log('Ignoring signaling error since data channel is already active.');
-        return;
-      }
-
-      if (err.type === 'peer-unavailable') {
-        setError('Room not found. Double-check the code and make sure your partner is hosting.');
-      } else if (err.type === 'socket-error' || err.type === 'socket-closed' || err.type === 'network') {
-        setError('Signaling server temporarily offline. Retrying connection...');
-        setTimeout(() => {
-          if (peerRef.current && !peerRef.current.destroyed && peerRef.current.disconnected) {
-            peerRef.current.reconnect();
-          }
-        }, 3000);
-        return;
-      } else {
-        setError('Connection failed. Check your internet and try again.');
-      }
+    client.on('error', (err) => {
+      console.error('Guest broker error:', err);
+      setError('Connection failed. Verify code and try again.');
       cleanupState();
     });
-  }, [handleConnection]);
+
+    client.on('close', () => {
+      if (!clientRef.current?.connected && isConnected) {
+        cleanupState('Broker disconnected. Reconnecting...');
+      }
+    });
+
+    // 15-second timeout for join sequence
+    connectTimeoutRef.current = window.setTimeout(() => {
+      if (!isConnected) {
+        setError(
+          'Could not reach the room. Make sure the room code is correct, ' +
+          'the host is waiting, and both of you are connected to the internet.'
+        );
+        cleanupState();
+      }
+    }, 15000);
+
+  }, [cleanupState, handleMessage, isConnected]);
+
+  // Keep-alive heartbeat to detect network/tab drops quickly (every 4s)
+  useEffect(() => {
+    if (isConnected) {
+      lastActiveRef.current = Date.now();
+      pingIntervalRef.current = window.setInterval(() => {
+        // Send a ping message
+        sendData({ type: 'PING' });
+
+        // Check if the partner has timed out (no messages for 10 seconds)
+        if (Date.now() - lastActiveRef.current > 10000) {
+          cleanupState('Connection timed out. Partner appears offline.');
+        }
+      }, 4000);
+    }
+    return () => {
+      if (pingIntervalRef.current) {
+        clearInterval(pingIntervalRef.current);
+        pingIntervalRef.current = null;
+      }
+    };
+  }, [isConnected, sendData, cleanupState]);
 
   const sendGameAction = useCallback((state: any) => {
     setGameState(state);
@@ -417,7 +357,7 @@ export const PeerProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setError(null);
   };
 
-  // Re-send name on connection (handles race conditions)
+  // Re-sync name on join
   useEffect(() => {
     if (isConnected && playerName) {
       const timer = setTimeout(() => {
@@ -425,7 +365,7 @@ export const PeerProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }, 500);
       return () => clearTimeout(timer);
     }
-  }, [isConnected]);
+  }, [isConnected, playerName, sendData]);
 
   return (
     <PeerContext.Provider value={{
