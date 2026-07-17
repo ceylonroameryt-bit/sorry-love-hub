@@ -280,12 +280,12 @@ export const Lobby: React.FC<Props> = ({ onSelectLocalGame }) => {
                 {role === 'guest' ? '🔗' : '⏳'}
               </div>
               <h2 className="font-cute" style={{ color: '#4c1d95', margin: '0 0 0.4rem', fontSize: '1.4rem' }}>
-                {role === 'guest' ? 'Connecting...' : 'Setting up room...'}
+                {role === 'guest' ? 'Connecting...' : 'Partner connecting...'}
               </h2>
               <p style={{ color: '#6b7280', fontSize: '0.9rem' }}>
                 {role === 'guest'
                   ? 'Reaching your partner across the internet, please wait…'
-                  : 'Getting your room ready…'}
+                  : 'Establishing secure peer connection, please wait…'}
               </p>
               <button onClick={disconnect} className="btn-cute btn-cute-secondary" style={{ marginTop: '1.2rem' }}>Cancel</button>
             </div>

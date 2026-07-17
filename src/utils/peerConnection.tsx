@@ -232,6 +232,7 @@ export const PeerProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     peer.on('connection', (conn) => {
       setIsHostReady(false);
+      setIsConnecting(true); // Prevent host UI from reverting to home page during negotiation
       handleConnection(conn);
       // Send host name after a brief delay to ensure the data channel is ready
       setTimeout(() => {
