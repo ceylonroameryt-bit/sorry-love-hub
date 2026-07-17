@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
 import { PeerProvider, useGamePeer } from './utils/peerConnection';
-import { ApologyScreen } from './components/ApologyScreen';
 import { Lobby } from './components/Lobby';
 import { WordGuess } from './components/WordGuess';
 import { CatCatch } from './components/CatCatch';
@@ -41,24 +40,40 @@ import { HotOrNot } from './components/HotOrNot';
 import { FinishSentence } from './components/FinishSentence';
 import { CoupleConfessions } from './components/CoupleConfessions';
 import { ThisOrThat } from './components/ThisOrThat';
-import { Heart, BookOpen, Gamepad2 } from 'lucide-react';
+import { playSound, triggerVibration } from './utils/effects';
+import { Heart, Gamepad2 } from 'lucide-react';
 import './App.css';
 
 const MainAppContent: React.FC = () => {
   const { activeGame } = useGamePeer();
-  const [hasForgiven, setHasForgiven] = useState(() => {
-    return localStorage.getItem('bfgf_forgiven') === 'true';
-  });
   const [localGame, setLocalGame] = useState<string | null>(null);
 
-  const handleForgiven = () => {
-    setHasForgiven(true);
-    localStorage.setItem('bfgf_forgiven', 'true');
-  };
+  // Global click interceptor for arcade sound and tactile haptic feedback
+  React.useEffect(() => {
+    const handleGlobalClick = (e: MouseEvent) => {
+      let target = e.target as HTMLElement | null;
+      let depth = 0;
+      while (target && depth < 5) {
+        const isClickable = 
+          target.tagName === 'BUTTON' || 
+          target.tagName === 'A' || 
+          target.classList.contains('btn-cute') || 
+          target.classList.contains('card-game') || 
+          target.classList.contains('alpha-key') ||
+          target.getAttribute('role') === 'button';
 
-  if (!hasForgiven) {
-    return <ApologyScreen onForgiven={handleForgiven} />;
-  }
+        if (isClickable) {
+          playSound('click');
+          triggerVibration(25);
+          break;
+        }
+        target = target.parentElement;
+        depth++;
+      }
+    };
+    window.addEventListener('click', handleGlobalClick);
+    return () => window.removeEventListener('click', handleGlobalClick);
+  }, []);
 
   const isPlayingLocal = localGame !== null;
   const isPlayingOnline = activeGame !== null;
@@ -69,10 +84,10 @@ const MainAppContent: React.FC = () => {
       <header className="app-header">
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
           <div style={{
-            background: 'linear-gradient(135deg, #7c3aed, #8b5cf6)',
+            background: 'linear-gradient(135deg, #7c3aed, #ec4899)',
             borderRadius: '10px', padding: '6px', display: 'flex',
           }}>
-            <Heart size={18} fill="#fff" color="#fff" />
+            <Heart size={18} fill="#fff" color="#fff" style={{ animation: 'wiggle 1s ease infinite' }} />
           </div>
           <span className="font-cute app-title">Ape Punchi Game Room (අපේ පුංචි ගේම් රූම්) 🎮</span>
         </div>
@@ -83,16 +98,6 @@ const MainAppContent: React.FC = () => {
               <Gamepad2 size={12} /> Playing
             </span>
           )}
-          <button
-            onClick={() => {
-              localStorage.removeItem('bfgf_forgiven');
-              window.location.reload();
-            }}
-            className="btn-cute btn-cute-secondary app-letter-btn"
-          >
-            <BookOpen size={14} />
-            <span className="btn-label">Read Letter 💌</span>
-          </button>
         </div>
       </header>
 
