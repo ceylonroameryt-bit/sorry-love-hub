@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useGamePeer } from '../utils/peerConnection';
-import { ArrowLeft, RefreshCw, Award, Heart, Check, X, Clock } from 'lucide-react';
+import { ArrowLeft, RefreshCw, Award, Heart, Check, X, Clock, Zap } from 'lucide-react';
 
 interface Question {
   text: string;
@@ -8,58 +8,106 @@ interface Question {
   answer: string;
 }
 
-const QUESTIONS: Question[] = [
+const ALL_QUESTIONS: Question[] = [
   { text: "What is the capital city of Australia? 🇦🇺", options: ["Sydney", "Melbourne", "Canberra", "Brisbane"], answer: "Canberra" },
   { text: "Which element has the chemical symbol 'O'? 🧪", options: ["Gold", "Oxygen", "Osmium", "Iron"], answer: "Oxygen" },
-  { text: "Who painted the famous Mona Lisa? 🎨", options: ["Vincent van Gogh", "Pablo Picasso", "Leonardo da Vinci", "Claude Monet"], answer: "Leonardo da Vinci" },
+  { text: "Who painted the Mona Lisa? 🎨", options: ["Vincent van Gogh", "Pablo Picasso", "Leonardo da Vinci", "Claude Monet"], answer: "Leonardo da Vinci" },
   { text: "Which is the smallest country in the world? 🇻🇦", options: ["Monaco", "Vatican City", "Liechtenstein", "San Marino"], answer: "Vatican City" },
-  { text: "What is the primary gas found in the Earth's atmosphere? ☁️", options: ["Oxygen", "Nitrogen", "Carbon Dioxide", "Hydrogen"], answer: "Nitrogen" },
+  { text: "What is the primary gas in Earth's atmosphere? ☁️", options: ["Oxygen", "Nitrogen", "Carbon Dioxide", "Hydrogen"], answer: "Nitrogen" },
   { text: "How many legs does a spider have? 🕷️", options: ["6", "8", "10", "12"], answer: "8" },
   { text: "What is the largest land animal on Earth? 🐘", options: ["African Elephant", "Blue Whale", "Giraffe", "Hippopotamus"], answer: "African Elephant" },
   { text: "Which language has the most native speakers? 🗣️", options: ["English", "Spanish", "Mandarin Chinese", "Hindi"], answer: "Mandarin Chinese" },
   { text: "Which planet is closest to the Sun? ☀️", options: ["Venus", "Mercury", "Mars", "Earth"], answer: "Mercury" },
-  { text: "What is the name of the fairy in Peter Pan? 🧚‍♀️", options: ["Tinker Bell", "Cinderella", "Ariel", "Belle"], answer: "Tinker Bell" },
+  { text: "What is the name of the fairy in Peter Pan? 🧚", options: ["Tinker Bell", "Cinderella", "Ariel", "Belle"], answer: "Tinker Bell" },
+  { text: "What is the largest organ in the human body? 🧬", options: ["Heart", "Liver", "Skin", "Brain"], answer: "Skin" },
+  { text: "How many sides does a hexagon have? 🔷", options: ["5", "6", "7", "8"], answer: "6" },
+  { text: "Which country invented pizza? 🍕", options: ["France", "Spain", "Greece", "Italy"], answer: "Italy" },
+  { text: "What is the speed of light? ⚡", options: ["300,000 km/s", "150,000 km/s", "500,000 km/s", "100,000 km/s"], answer: "300,000 km/s" },
+  { text: "Who wrote Romeo and Juliet? 📖", options: ["Charles Dickens", "William Shakespeare", "Jane Austen", "Mark Twain"], answer: "William Shakespeare" },
+  { text: "What is the chemical symbol for gold? 🥇", options: ["Go", "Gd", "Au", "Ag"], answer: "Au" },
+  { text: "How many planets are in our solar system? 🪐", options: ["7", "8", "9", "10"], answer: "8" },
+  { text: "Which ocean is the largest? 🌊", options: ["Atlantic", "Indian", "Pacific", "Arctic"], answer: "Pacific" },
+  { text: "What is the capital of Japan? 🗾", options: ["Osaka", "Tokyo", "Kyoto", "Hiroshima"], answer: "Tokyo" },
+  { text: "What gas do plants absorb from the air? 🌿", options: ["Oxygen", "Nitrogen", "Carbon Dioxide", "Hydrogen"], answer: "Carbon Dioxide" },
+  { text: "Which sport uses a shuttlecock? 🏸", options: ["Tennis", "Badminton", "Squash", "Table Tennis"], answer: "Badminton" },
+  { text: "How many strings does a standard guitar have? 🎸", options: ["4", "5", "6", "7"], answer: "6" },
+  { text: "What is the longest river in the world? 🌍", options: ["Amazon", "Nile", "Yangtze", "Mississippi"], answer: "Nile" },
+  { text: "Which animal is the fastest on land? 🐆", options: ["Lion", "Horse", "Cheetah", "Gazelle"], answer: "Cheetah" },
+  { text: "In what year did World War II end? 🕊️", options: ["1943", "1944", "1945", "1946"], answer: "1945" },
+  { text: "What is H2O commonly known as? 💧", options: ["Hydrogen", "Water", "Salt Water", "Oxygen"], answer: "Water" },
+  { text: "Which fruit is known as the king of fruits? 🍑", options: ["Mango", "Durian", "Jackfruit", "Pineapple"], answer: "Mango" },
+  { text: "How many chambers does the human heart have? ❤️", options: ["2", "3", "4", "5"], answer: "4" },
+  { text: "Which country is home to the Great Wall? 🏯", options: ["Japan", "India", "China", "Korea"], answer: "China" },
+  { text: "What is the most-spoken language in the world? 🌐", options: ["English", "Spanish", "Mandarin", "Hindi"], answer: "Mandarin" },
 ];
+
+function shuffle<T>(arr: T[]): T[] {
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+const ROUND_COUNT = 10;
+const TIMER_SECONDS = 20;
 
 interface BattleState {
   phase: 'playing' | 'round_end' | 'ended';
   round: number;
   questionIndex: number;
+  questionOrder: number[]; // shuffled indices into ALL_QUESTIONS
   hostChoice: string | null;
   guestChoice: string | null;
   hostScore: number;
   guestScore: number;
 }
 
-const INITIAL: BattleState = {
-  phase: 'playing',
-  round: 1,
-  questionIndex: 0,
-  hostChoice: null,
-  guestChoice: null,
-  hostScore: 0,
-  guestScore: 0
-};
+function makeInitial(): BattleState {
+  return {
+    phase: 'playing',
+    round: 1,
+    questionIndex: 0,
+    questionOrder: shuffle(ALL_QUESTIONS.map((_, i) => i)).slice(0, ROUND_COUNT),
+    hostChoice: null,
+    guestChoice: null,
+    hostScore: 0,
+    guestScore: 0,
+  };
+}
 
 export const TriviaBattle: React.FC = () => {
   const { role, sendGameAction, gameState, selectGame, opponentName } = useGamePeer();
-  const state: BattleState = gameState ?? INITIAL;
+  const state: BattleState = gameState ?? makeInitial();
 
-  const [timeLeft, setTimeLeft] = useState(15);
+  const [timeLeft, setTimeLeft] = useState(TIMER_SECONDS);
   const timerRef = useRef<number | null>(null);
+  const stateRef = useRef(state);
 
-  const currentQ = QUESTIONS[state.questionIndex] || QUESTIONS[0];
+  useEffect(() => {
+    stateRef.current = state;
+  }, [state]);
+
+  const questionOrder = state.questionOrder ?? ALL_QUESTIONS.map((_, i) => i).slice(0, ROUND_COUNT);
+  const currentQ = ALL_QUESTIONS[questionOrder[state.questionIndex]] ?? ALL_QUESTIONS[0];
   const myChoice = role === 'host' ? state.hostChoice : state.guestChoice;
   const theirChoice = role === 'host' ? state.guestChoice : state.hostChoice;
 
+  const resolveRound = useCallback((currentState: BattleState) => {
+    const q = ALL_QUESTIONS[(currentState.questionOrder ?? questionOrder)[currentState.questionIndex]] ?? ALL_QUESTIONS[0];
+    const nextState = { ...currentState, phase: 'round_end' as const };
+    if (nextState.hostChoice === q.answer) nextState.hostScore += 1;
+    if (nextState.guestChoice === q.answer) nextState.guestScore += 1;
+    sendGameAction(nextState);
+  }, [sendGameAction, questionOrder]);
+
   const selectAnswer = (ans: string) => {
     if (myChoice !== null || state.phase !== 'playing') return;
-
-    const nextState = { ...state };
+    const nextState = { ...stateRef.current };
     if (role === 'host') nextState.hostChoice = ans;
     else nextState.guestChoice = ans;
 
-    // Check if both have answered
     if (nextState.hostChoice && nextState.guestChoice) {
       resolveRound(nextState);
     } else {
@@ -67,28 +115,11 @@ export const TriviaBattle: React.FC = () => {
     }
   };
 
-  const resolveRound = (currentState: BattleState) => {
-    const nextState = { ...currentState };
-    nextState.phase = 'round_end';
-
-    // Award scores
-    if (nextState.hostChoice === currentQ.answer) {
-      nextState.hostScore += 1;
-    }
-    if (nextState.guestChoice === currentQ.answer) {
-      nextState.guestScore += 1;
-    }
-
-    sendGameAction(nextState);
-  };
-
   const nextQuestion = () => {
+    if (role !== 'host') return;
     const nextIdx = state.questionIndex + 1;
-    if (nextIdx >= QUESTIONS.length) {
-      sendGameAction({
-        ...state,
-        phase: 'ended'
-      });
+    if (nextIdx >= ROUND_COUNT) {
+      sendGameAction({ ...state, phase: 'ended' });
     } else {
       sendGameAction({
         ...state,
@@ -96,47 +127,47 @@ export const TriviaBattle: React.FC = () => {
         round: state.round + 1,
         questionIndex: nextIdx,
         hostChoice: null,
-        guestChoice: null
+        guestChoice: null,
       });
-      setTimeLeft(15);
+      setTimeLeft(TIMER_SECONDS);
     }
   };
 
-  // Timer logic
+  // Host-authoritative timer
   useEffect(() => {
-    if (state.phase !== 'playing') {
-      if (timerRef.current) clearInterval(timerRef.current);
-      return;
-    }
+    if (timerRef.current) clearInterval(timerRef.current);
+    if (state.phase !== 'playing') return;
+
+    setTimeLeft(TIMER_SECONDS);
 
     timerRef.current = window.setInterval(() => {
       setTimeLeft(t => {
         if (t <= 1) {
           clearInterval(timerRef.current!);
-          
-          // Force end round
-          const nextState = { ...state };
-          if (!nextState.hostChoice) nextState.hostChoice = 'timeout';
-          if (!nextState.guestChoice) nextState.guestChoice = 'timeout';
-          resolveRound(nextState);
+          // Only host resolves timeout to avoid double-resolve
+          if (role === 'host') {
+            const s = { ...stateRef.current };
+            if (!s.hostChoice) s.hostChoice = 'timeout';
+            if (!s.guestChoice) s.guestChoice = 'timeout';
+            resolveRound(s);
+          }
           return 0;
         }
         return t - 1;
       });
     }, 1000);
 
-    return () => {
-      if (timerRef.current) clearInterval(timerRef.current);
-    };
+    return () => { if (timerRef.current) clearInterval(timerRef.current); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.phase, state.questionIndex]);
 
   const resetAll = () => {
-    sendGameAction({ ...INITIAL });
-    setTimeLeft(15);
+    sendGameAction(makeInitial());
+    setTimeLeft(TIMER_SECONDS);
   };
 
   const iWon = (role === 'host' && state.hostScore > state.guestScore) || (role === 'guest' && state.guestScore > state.hostScore);
-  const correctOption = currentQ.answer;
+  const timerColor = timeLeft <= 5 ? '#dc2626' : timeLeft <= 10 ? '#d97706' : '#7c3aed';
 
   return (
     <div className="container-cute" style={{ maxWidth: '700px' }}>
@@ -147,84 +178,63 @@ export const TriviaBattle: React.FC = () => {
             <ArrowLeft size={15} /> Back
           </button>
           <span className="badge-cute">Trivia Battle 🧠</span>
-          <button onClick={resetAll} className="btn-cute btn-cute-secondary" style={{ padding: '0.4rem 0.9rem', fontSize: '0.85rem' }} title="Reset scores">
+          <button onClick={resetAll} className="btn-cute btn-cute-secondary" style={{ padding: '0.4rem 0.9rem', fontSize: '0.85rem' }} title="New game">
             <RefreshCw size={14} />
           </button>
         </div>
 
         {/* Score Board */}
-        <div style={{
-          display: 'flex', justifyContent: 'space-around', alignItems: 'center',
-          background: '#fff', borderRadius: '14px', padding: '0.8rem 1rem',
-          border: '1px solid #ede9fe', marginBottom: '1.5rem',
-        }}>
+        <div style={{ display: 'flex', justifyContent: 'space-around', alignItems: 'center', background: '#fff', borderRadius: '14px', padding: '0.8rem 1rem', border: '1px solid #ede9fe', marginBottom: '1.5rem' }}>
           <div style={{ textAlign: 'center' }}>
-            <div style={{ fontSize: '0.8rem', color: '#6b7280' }}>Your Score</div>
-            <div className="font-cute" style={{ fontSize: '1.6rem', color: '#7c3aed' }}>
-              {role === 'host' ? state.hostScore : state.guestScore}
-            </div>
+            <div style={{ fontSize: '0.75rem', color: '#6b7280' }}>You</div>
+            <div className="font-cute" style={{ fontSize: '1.8rem', color: '#7c3aed' }}>{role === 'host' ? state.hostScore : state.guestScore}</div>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '5px', background: '#f5f3ff', padding: '0.4rem 1.1rem', borderRadius: '50px', border: '1px solid #ddd6fe' }}>
-            <Clock size={14} color="#7c3aed" />
-            <span className="font-cute" style={{ fontSize: '0.9rem', color: '#7c3aed' }}>{timeLeft}s</span>
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '5px', background: '#f5f3ff', padding: '0.3rem 0.8rem', borderRadius: '50px', border: `1.5px solid ${timerColor}30` }}>
+              <Clock size={13} color={timerColor} />
+              <span className="font-cute" style={{ fontSize: '1rem', color: timerColor, transition: 'color 0.3s' }}>{timeLeft}s</span>
+            </div>
+            <div style={{ fontSize: '0.7rem', color: '#9ca3af' }}>Q {state.round}/{ROUND_COUNT}</div>
           </div>
           <div style={{ textAlign: 'center' }}>
-            <div style={{ fontSize: '0.8rem', color: '#6b7280' }}>{opponentName || 'Partner'}'s Score</div>
-            <div className="font-cute" style={{ fontSize: '1.6rem', color: '#8b5cf6' }}>
-              {role === 'guest' ? state.hostScore : state.guestScore}
-            </div>
+            <div style={{ fontSize: '0.75rem', color: '#6b7280' }}>{opponentName || 'Partner'}</div>
+            <div className="font-cute" style={{ fontSize: '1.8rem', color: '#8b5cf6' }}>{role === 'guest' ? state.hostScore : state.guestScore}</div>
           </div>
         </div>
+
+        {/* Timer bar */}
+        {state.phase === 'playing' && (
+          <div style={{ height: '6px', background: '#f5f3ff', borderRadius: '99px', overflow: 'hidden', marginBottom: '1.5rem' }}>
+            <div style={{ height: '100%', width: `${(timeLeft / TIMER_SECONDS) * 100}%`, background: `linear-gradient(to right, ${timerColor}, #a78bfa)`, borderRadius: '99px', transition: 'width 1s linear, background 0.3s' }} />
+          </div>
+        )}
 
         {/* PLAYING PHASE */}
         {state.phase === 'playing' && (
           <div style={{ textAlign: 'center' }}>
-            <div style={{
-              background: '#fff',
-              border: '1px solid #ede9fe',
-              borderRadius: '16px',
-              padding: '1.5rem 1.2rem',
-              boxShadow: '0 4px 10px rgba(0,0,0,0.01)',
-              marginBottom: '1.5rem',
-              textAlign: 'center',
-            }}>
-              <h3 className="font-cute" style={{ color: '#4c1d95', fontSize: '1.35rem', margin: 0, lineHeight: 1.4 }}>
+            <div style={{ background: '#fff', border: '1px solid #ede9fe', borderRadius: '16px', padding: '1.5rem 1.2rem', boxShadow: '0 4px 10px rgba(0,0,0,0.03)', marginBottom: '1.5rem' }}>
+              <h3 className="font-cute" style={{ color: '#4c1d95', fontSize: '1.3rem', margin: 0, lineHeight: 1.4 }}>
                 {currentQ.text}
               </h3>
             </div>
 
             {myChoice === null ? (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', maxWidth: '520px', margin: '0 auto' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', maxWidth: '540px', margin: '0 auto' }}>
                 {currentQ.options.map((opt, i) => (
-                  <button
-                    key={i}
-                    onClick={() => selectAnswer(opt)}
-                    className="btn-cute btn-cute-secondary"
-                    style={{
-                      padding: '0.9rem 1.2rem',
-                      fontSize: '1rem',
-                      justifyContent: 'flex-start',
-                      fontWeight: 700,
-                      color: '#4c1d95',
-                      border: '2px solid #ddd6fe',
-                      background: '#fff',
-                      boxShadow: '0 2px 8px rgba(124,58,237,0.08)',
-                      transition: 'all 0.15s',
-                      width: '100%',
-                    }}
-                  >
+                  <button key={i} onClick={() => selectAnswer(opt)} className="btn-cute btn-cute-secondary"
+                    style={{ padding: '0.85rem 1rem', fontSize: '0.95rem', justifyContent: 'center', fontWeight: 700, color: '#4c1d95', border: '2px solid #ddd6fe', background: '#fff', boxShadow: '0 2px 8px rgba(124,58,237,0.06)', transition: 'all 0.15s', whiteSpace: 'normal', textAlign: 'center', lineHeight: 1.3 }}>
                     {opt}
                   </button>
                 ))}
               </div>
             ) : (
               <div style={{ animation: 'pop-in 0.3s ease', padding: '1rem 0' }}>
-                <div className="font-cute" style={{ fontSize: '1.2rem', color: '#7c3aed', marginBottom: '0.5rem' }}>
-                  You locked in: "{myChoice}"
+                <div className="font-cute" style={{ fontSize: '1.1rem', color: '#7c3aed', marginBottom: '0.5rem' }}>
+                  ✅ Locked in: "{myChoice}"
                 </div>
-                <p style={{ color: '#8b5cf6', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
+                <p style={{ color: '#8b5cf6', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', fontSize: '0.9rem' }}>
                   Waiting for {opponentName || 'partner'}...
-                  <Heart size={15} fill="#7c3aed" color="#7c3aed" style={{ animation: 'pulse-gentle 1s infinite' }} />
+                  <Heart size={14} fill="#7c3aed" color="#7c3aed" style={{ animation: 'pulse-gentle 1s infinite' }} />
                 </p>
               </div>
             )}
@@ -234,56 +244,39 @@ export const TriviaBattle: React.FC = () => {
         {/* ROUND END REVEAL */}
         {state.phase === 'round_end' && (
           <div style={{ textAlign: 'center', animation: 'pop-in 0.4s ease' }}>
-            <h4 style={{ color: '#6b7280', fontSize: '0.9rem', marginBottom: '0.5rem' }}>The question was:</h4>
-            <h3 className="font-cute" style={{ color: '#4c1d95', fontSize: '1.25rem', marginBottom: '1.5rem', lineHeight: 1.3 }}>
+            <h4 style={{ color: '#6b7280', fontSize: '0.88rem', marginBottom: '0.4rem' }}>The question was:</h4>
+            <h3 className="font-cute" style={{ color: '#4c1d95', fontSize: '1.2rem', marginBottom: '1.2rem', lineHeight: 1.3 }}>
               "{currentQ.text}"
             </h3>
 
-            <div style={{ background: '#ecfdf5', border: '2px solid #a7f3d0', borderRadius: '18px', padding: '1rem', maxWidth: '360px', margin: '0 auto 1.5rem' }}>
-              <div style={{ fontSize: '0.85rem', color: '#047857', fontWeight: 700 }}>CORRECT ANSWER</div>
-              <div style={{ fontSize: '1.3rem', fontWeight: 900, color: '#065f46', marginTop: '0.2rem' }}>
-                {correctOption}
-              </div>
+            <div style={{ background: '#ecfdf5', border: '2px solid #a7f3d0', borderRadius: '18px', padding: '0.9rem 1.2rem', maxWidth: '360px', margin: '0 auto 1.2rem' }}>
+              <div style={{ fontSize: '0.8rem', color: '#047857', fontWeight: 700 }}>✅ CORRECT ANSWER</div>
+              <div style={{ fontSize: '1.2rem', fontWeight: 900, color: '#065f46', marginTop: '0.2rem' }}>{currentQ.answer}</div>
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '2rem' }}>
-              <div style={{
-                background: myChoice === correctOption ? '#ecfdf5' : '#fef2f2',
-                border: `1.5px solid ${myChoice === correctOption ? '#a7f3d0' : '#fecaca'}`,
-                borderRadius: '18px', padding: '1rem'
-              }}>
-                <div style={{ fontSize: '0.8rem', color: '#6b7280', fontWeight: 700 }}>Your Answer</div>
-                <div style={{ fontSize: '1.05rem', fontWeight: 800, color: myChoice === correctOption ? '#047857' : '#b91c1c', marginTop: '0.3rem', lineHeight: 1.3 }}>
-                  {myChoice === 'timeout' ? '⏰ Timeout' : myChoice}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1.5rem' }}>
+              {[
+                { label: 'Your Answer', choice: myChoice, isCorrect: myChoice === currentQ.answer },
+                { label: `${opponentName || 'Partner'}'s Answer`, choice: theirChoice, isCorrect: theirChoice === currentQ.answer },
+              ].map(({ label, choice, isCorrect }) => (
+                <div key={label} style={{ background: isCorrect ? '#ecfdf5' : '#fef2f2', border: `1.5px solid ${isCorrect ? '#a7f3d0' : '#fecaca'}`, borderRadius: '18px', padding: '1rem' }}>
+                  <div style={{ fontSize: '0.78rem', color: '#6b7280', fontWeight: 700 }}>{label}</div>
+                  <div style={{ fontSize: '1rem', fontWeight: 800, color: isCorrect ? '#047857' : '#b91c1c', marginTop: '0.3rem', lineHeight: 1.3 }}>
+                    {choice === 'timeout' ? '⏰ Timed Out' : (choice || '—')}
+                  </div>
+                  <div style={{ marginTop: '0.4rem' }}>
+                    {isCorrect ? <Check color="#10b981" size={22} style={{ margin: '0 auto' }} /> : <X color="#dc2626" size={22} style={{ margin: '0 auto' }} />}
+                  </div>
                 </div>
-                <div style={{ marginTop: '0.5rem' }}>
-                  {myChoice === correctOption ? <Check color="#10b981" size={24} style={{ margin: '0 auto' }} /> : <X color="#dc2626" size={24} style={{ margin: '0 auto' }} />}
-                </div>
-              </div>
-
-              <div style={{
-                background: theirChoice === correctOption ? '#ecfdf5' : '#fef2f2',
-                border: `1.5px solid ${theirChoice === correctOption ? '#a7f3d0' : '#fecaca'}`,
-                borderRadius: '18px', padding: '1rem'
-              }}>
-                <div style={{ fontSize: '0.8rem', color: '#6b7280', fontWeight: 700 }}>{opponentName || 'Partner'}'s Answer</div>
-                <div style={{ fontSize: '1.05rem', fontWeight: 800, color: theirChoice === correctOption ? '#047857' : '#b91c1c', marginTop: '0.3rem', lineHeight: 1.3 }}>
-                  {theirChoice === 'timeout' ? '⏰ Timeout' : theirChoice}
-                </div>
-                <div style={{ marginTop: '0.5rem' }}>
-                  {theirChoice === correctOption ? <Check color="#10b981" size={24} style={{ margin: '0 auto' }} /> : <X color="#dc2626" size={24} style={{ margin: '0 auto' }} />}
-                </div>
-              </div>
+              ))}
             </div>
 
             {role === 'host' ? (
               <button onClick={nextQuestion} className="btn-cute btn-cute-primary" style={{ background: 'linear-gradient(135deg,#7c3aed,#8b5cf6)', padding: '0.8rem 2rem' }}>
-                Next Question ➡️
+                <Zap size={16} /> {state.questionIndex + 1 >= ROUND_COUNT ? 'See Final Results' : 'Next Question ➡️'}
               </button>
             ) : (
-              <p style={{ color: '#8b5cf6', fontSize: '0.9rem' }}>
-                Waiting for host to load next question...
-              </p>
+              <p style={{ color: '#8b5cf6', fontSize: '0.9rem' }}>Waiting for host to continue...</p>
             )}
           </div>
         )}
@@ -294,23 +287,30 @@ export const TriviaBattle: React.FC = () => {
             <Award size={60} color="#7c3aed" style={{ animation: 'float 3s ease infinite', margin: '0 auto 1rem' }} />
             <h2 className="font-cute" style={{ fontSize: '2.2rem', color: '#4c1d95', margin: '0 0 0.5rem' }}>Battle Over! 🏁</h2>
 
+            <div style={{ background: '#f5f3ff', border: '2px solid #ddd6fe', borderRadius: '20px', padding: '1.2rem', maxWidth: '360px', margin: '0 auto 1.5rem' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-around' }}>
+                <div>
+                  <div style={{ fontSize: '0.8rem', color: '#6b7280' }}>You</div>
+                  <div className="font-cute" style={{ fontSize: '2rem', color: '#7c3aed' }}>{role === 'host' ? state.hostScore : state.guestScore}</div>
+                </div>
+                <div style={{ fontSize: '1.5rem', alignSelf: 'center', color: '#a78bfa' }}>vs</div>
+                <div>
+                  <div style={{ fontSize: '0.8rem', color: '#6b7280' }}>{opponentName || 'Partner'}</div>
+                  <div className="font-cute" style={{ fontSize: '2rem', color: '#8b5cf6' }}>{role === 'guest' ? state.hostScore : state.guestScore}</div>
+                </div>
+              </div>
+            </div>
+
             <div style={{ fontSize: '1.2rem', color: '#374151', marginBottom: '2rem' }}>
-              {state.hostScore === state.guestScore ? (
-                <span><strong>It's a perfect tie!</strong> 🤝</span>
-              ) : iWon ? (
-                <span><strong>You won the battle! 👑</strong></span>
-              ) : (
-                <span><strong>{opponentName || 'Partner'} won the battle! 👑</strong></span>
-              )}
+              {state.hostScore === state.guestScore ? <span><strong>It's a perfect tie!</strong> 🤝</span>
+                : iWon ? <span><strong>You won the battle! 👑</strong> Amazing!</span>
+                : <span><strong>{opponentName || 'Partner'} won! 👑</strong> Better luck next time!</span>
+              }
             </div>
 
             <div style={{ display: 'flex', gap: '1rem', justifyContent: 'center' }}>
-              <button onClick={resetAll} className="btn-cute btn-cute-primary" style={{ background: 'linear-gradient(135deg,#7c3aed,#8b5cf6)' }}>
-                Play Again
-              </button>
-              <button onClick={() => selectGame(null)} className="btn-cute btn-cute-secondary">
-                Back to Lobby
-              </button>
+              <button onClick={resetAll} className="btn-cute btn-cute-primary" style={{ background: 'linear-gradient(135deg,#7c3aed,#8b5cf6)' }}>Play Again</button>
+              <button onClick={() => selectGame(null)} className="btn-cute btn-cute-secondary">Back to Lobby</button>
             </div>
           </div>
         )}

@@ -2,35 +2,56 @@ import React, { createContext, useContext, useState, useEffect, useRef, useCallb
 import { Peer } from 'peerjs';
 import type { DataConnection } from 'peerjs';
 
-// ─── ICE / STUN config ────────────────────────────────────────────────────────
-// Google's public STUN servers allow WebRTC to punch through NAT on different
-// WiFi/mobile-data connections across countries (UK ↔ Sri Lanka etc.)
-const ICE_SERVERS = [
+// ─── ICE / STUN / TURN config ─────────────────────────────────────────────────
+// Robust cross-country config for UK ↔ Sri Lanka (different NATs, mobile data).
+// We include:
+//   • Multiple STUN servers (Google + Cloudflare)
+//   • Multiple TURN variants: UDP port 80, TCP port 443, and TURNS (TLS) over 443
+//   • TURNS (TLS) is hardest for ISPs to block since it runs on port 443
+const ICE_SERVERS: RTCIceServer[] = [
   { urls: 'stun:stun.l.google.com:19302' },
   { urls: 'stun:stun1.l.google.com:19302' },
   { urls: 'stun:stun2.l.google.com:19302' },
   { urls: 'stun:stun3.l.google.com:19302' },
+  { urls: 'stun:stun.cloudflare.com:3478' },
+  // UDP relay — fastest path
   {
     urls: 'turn:openrelay.metered.ca:80',
     username: 'openrelayproject',
     credential: 'openrelayproject',
   },
+  // TCP relay — bypasses UDP port blocks
+  {
+    urls: 'turn:openrelay.metered.ca:443?transport=tcp',
+    username: 'openrelayproject',
+    credential: 'openrelayproject',
+  },
+  // TURNS = TURN over TLS — runs on port 443 like HTTPS; almost never blocked
+  {
+    urls: 'turns:openrelay.metered.ca:443',
+    username: 'openrelayproject',
+    credential: 'openrelayproject',
+  },
+  // Additional TCP endpoint
   {
     urls: 'turn:openrelay.metered.ca:443',
     username: 'openrelayproject',
     credential: 'openrelayproject',
   },
-  {
-    urls: 'turn:openrelay.metered.ca:443?transport=tcp',
-    username: 'openrelayproject',
-    credential: 'openrelayproject',
-  }
 ];
 
 const PEER_CONFIG = {
-  config: { iceServers: ICE_SERVERS },
-  debug: 1,
+  host: '0.peerjs.com',
+  port: 443,
+  path: '/',
+  secure: true,
+  pingInterval: 5000, // Keep socket alive with 5s pings
+  // iceCandidatePoolSize tells the browser to pre-gather ICE candidates
+  // before the offer is sent, which dramatically speeds up connection time.
+  config: { iceServers: ICE_SERVERS, iceCandidatePoolSize: 10 },
+  debug: 3, // Enable full debug logging for troubleshooting NAT/ICE issues
 };
+
 
 // ─── Short room code generator ────────────────────────────────────────────────
 // Generates a 6-char code like "LOVE47" — this becomes the actual Peer ID,
@@ -224,6 +245,7 @@ export const PeerProvider: React.FC<{ children: React.ReactNode }> = ({ children
       console.warn('Host peer error:', err);
 
       if (err.type === 'unavailable-id') {
+        peer.destroy();
         peerRef.current = null;
         // ID collision on broker — silently retry with a new code
         hostRoom(name, generateRoomCode());
@@ -280,17 +302,70 @@ export const PeerProvider: React.FC<{ children: React.ReactNode }> = ({ children
       });
       handleConnection(connection);
 
-      // 30-second timeout. This fires only if connection.on('open') NEVER clears it.
-      // We use 30s because TURN relay negotiation across continents can be slow.
-      // ✅ No stale closure issue — we don't check any React state here.
+      // ── ICE state monitoring ──────────────────────────────────────────────
+      // PeerJS wraps RTCPeerConnection — access it after a tick so it's created.
+      setTimeout(() => {
+        const rtc = (connection as any).peerConnection as RTCPeerConnection | undefined;
+        if (!rtc) return;
+
+        rtc.addEventListener('iceconnectionstatechange', () => {
+          const state = rtc.iceConnectionState;
+          console.log('[ICE] iceConnectionState →', state);
+
+          if (state === 'failed') {
+            // ICE has completely failed — no relay path found.
+            if (!connRef.current?.open) {
+              if (connectTimeoutRef.current) clearTimeout(connectTimeoutRef.current);
+              setError(
+                '🌐 Network relay failed. Make sure both devices have a stable internet connection, ' +
+                'or try switching from mobile data to WiFi and re-host the room.'
+              );
+              cleanupState();
+            }
+          }
+
+          if (state === 'disconnected') {
+            // Transient disconnect — give it 5s to recover before giving up
+            setTimeout(() => {
+              if (rtc.iceConnectionState === 'disconnected' || rtc.iceConnectionState === 'failed') {
+                if (!connRef.current?.open) {
+                  if (connectTimeoutRef.current) clearTimeout(connectTimeoutRef.current);
+                  setError('Connection lost. Please refresh and try again.');
+                  cleanupState();
+                }
+              }
+            }, 5000);
+          }
+        });
+
+        // ICE gathering watchdog — if still checking after 15s, TURN isn't helping
+        const gatherWatchdog = window.setTimeout(() => {
+          if (rtc.iceConnectionState === 'checking' && !connRef.current?.open) {
+            console.warn('[ICE] Still checking after 15s — TURN servers may be unreachable.');
+          }
+        }, 15000);
+
+        // Clear the watchdog if we connect successfully
+        const clearWatchdog = () => clearTimeout(gatherWatchdog);
+        rtc.addEventListener('iceconnectionstatechange', () => {
+          if (rtc.iceConnectionState === 'connected' || rtc.iceConnectionState === 'completed') {
+            clearWatchdog();
+          }
+        });
+      }, 100);
+
+      // 30-second timeout — final fallback if ICE never completes or fails.
       connectTimeoutRef.current = window.setTimeout(() => {
-        // Only show error if we are still not connected (connRef tells us the truth)
         if (!connRef.current?.open) {
-          setError('Could not reach the room. Make sure the code is correct and the host is waiting.');
+          setError(
+            'Could not reach the room. Make sure the room code is correct, ' +
+            'the host is waiting, and both of you are connected to the internet.'
+          );
           cleanupState();
         }
       }, 30000);
     });
+
 
     peer.on('error', (err: any) => {
       console.warn('Guest peer error:', err);

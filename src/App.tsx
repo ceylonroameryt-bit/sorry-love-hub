@@ -31,6 +31,15 @@ import { WouldYouRather } from './components/WouldYouRather';
 import { ReactionRace } from './components/ReactionRace';
 import { NumberDuel } from './components/NumberDuel';
 import { TriviaBattle } from './components/TriviaBattle';
+import { OfflineHangman } from './components/OfflineHangman';
+import { OfflineFastFacts } from './components/OfflineFastFacts';
+import { OfflineLoveCalc } from './components/OfflineLoveCalc';
+import { OfflineGuessPrize } from './components/OfflineGuessPrize';
+import { EmojiTyperace } from './components/EmojiTyperace';
+import { HotOrNot } from './components/HotOrNot';
+import { FinishSentence } from './components/FinishSentence';
+import { CoupleConfessions } from './components/CoupleConfessions';
+import { ThisOrThat } from './components/ThisOrThat';
 import { Heart, BookOpen, Gamepad2 } from 'lucide-react';
 import './App.css';
 
@@ -107,6 +116,11 @@ const MainAppContent: React.FC = () => {
         {isPlayingLocal && localGame === 'offline-flappy' && <OfflineFlappyHeart onBack={() => setLocalGame(null)} />}
         {isPlayingLocal && localGame === 'offline-trivia' && <OfflineTriviaQuiz onBack={() => setLocalGame(null)} />}
 
+        {isPlayingLocal && localGame === 'offline-hangman' && <OfflineHangman onBack={() => setLocalGame(null)} />}
+        {isPlayingLocal && localGame === 'offline-fastfacts' && <OfflineFastFacts onBack={() => setLocalGame(null)} />}
+        {isPlayingLocal && localGame === 'offline-lovecalc' && <OfflineLoveCalc onBack={() => setLocalGame(null)} />}
+        {isPlayingLocal && localGame === 'offline-guessprize' && <OfflineGuessPrize onBack={() => setLocalGame(null)} />}
+
         {/* Online games */}
         {!isPlayingLocal && !activeGame && <Lobby onSelectLocalGame={setLocalGame} />}
         {!isPlayingLocal && activeGame === 'word-guess' && <WordGuess />}
@@ -120,6 +134,11 @@ const MainAppContent: React.FC = () => {
         {!isPlayingLocal && activeGame === 'reaction-race' && <ReactionRace />}
         {!isPlayingLocal && activeGame === 'number-duel' && <NumberDuel />}
         {!isPlayingLocal && activeGame === 'trivia-battle' && <TriviaBattle />}
+        {!isPlayingLocal && activeGame === 'emoji-typerace' && <EmojiTyperace />}
+        {!isPlayingLocal && activeGame === 'hot-or-not' && <HotOrNot />}
+        {!isPlayingLocal && activeGame === 'finish-sentence' && <FinishSentence />}
+        {!isPlayingLocal && activeGame === 'couple-confessions' && <CoupleConfessions />}
+        {!isPlayingLocal && activeGame === 'this-or-that' && <ThisOrThat />}
       </main>
 
       <footer style={{

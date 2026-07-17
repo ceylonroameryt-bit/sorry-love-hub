@@ -12,11 +12,16 @@ const ONLINE_GAMES = [
   { id: 'rps', title: 'Paw Clash ✊', desc: 'Classic Rock Paper Scissors with cute cat paws!', emoji: '✊', color: '#5b21b6' },
   { id: 'couples-quiz', title: 'Couples Quiz 💬', desc: 'How well do you know your partner? Ask and guess secret answers!', emoji: '💬', color: '#ec4899' },
   { id: 'emoji-battle', title: 'Emoji Battle 🎴', desc: 'Race against time to solve cute emoji riddles together!', emoji: '🎴', color: '#d97706' },
-  { id: 'truth-or-dare', title: 'Truth or Dare 🤫', desc: 'Pick Truth or Dare and get fun relationship prompts!', emoji: '🤫', color: '#db2777' },
-  { id: 'would-you-rather', title: 'Would You Rather 🤔', desc: 'Answer questions in secret and see how much you match!', emoji: '🤔', color: '#2563eb' },
-  { id: 'reaction-race', title: 'Reaction Race ⚡', desc: 'Tap the screen as fast as you can when the color changes!', emoji: '⚡', color: '#059669' },
+  { id: 'truth-or-dare', title: 'Truth or Dare 🤫', desc: 'Pick Truth or Dare and get 30 unique relationship prompts!', emoji: '🤫', color: '#db2777' },
+  { id: 'would-you-rather', title: 'Would You Rather 🤔', desc: 'Answer 25 questions in secret and see how much you match!', emoji: '🤔', color: '#2563eb' },
+  { id: 'reaction-race', title: 'Reaction Race ⚡', desc: 'Tap as fast as you can when the color changes — first to 5 wins!', emoji: '⚡', color: '#059669' },
   { id: 'number-duel', title: 'Number Duel 🔢', desc: 'Close to Target without going over. Double choice numbers duel!', emoji: '🔢', color: '#ca8a04' },
-  { id: 'trivia-battle', title: 'Trivia Battle 🧠', desc: 'Answer general trivia questions faster than your partner!', emoji: '🧠', color: '#7c3aed' },
+  { id: 'trivia-battle', title: 'Trivia Battle 🧠', desc: 'Battle through 30 shuffled trivia questions — 20 seconds each!', emoji: '🧠', color: '#7c3aed' },
+  { id: 'emoji-typerace', title: 'Emoji Typerace ⌨️', desc: 'Type the same phrase as fast as possible — best WPM wins!', emoji: '⌨️', color: '#059669' },
+  { id: 'hot-or-not', title: 'Hot or Not 🔥', desc: 'Rate topics 1–10 simultaneously and see how in sync you are!', emoji: '🔥', color: '#f97316' },
+  { id: 'finish-sentence', title: 'Finish the Sentence ✍️', desc: 'Both complete the same prompt independently — read results together!', emoji: '✍️', color: '#ec4899' },
+  { id: 'couple-confessions', title: 'Couple Confessions 🤭', desc: 'Secretly pick which option describes the same person. Do you agree?', emoji: '🤭', color: '#db2777' },
+  { id: 'this-or-that', title: 'This or That ⚡', desc: 'Rapid-fire 8-second simultaneous choices — see how much you match!', emoji: '⚡', color: '#8b5cf6' },
 ];
 
 const OFFLINE_GAMES = [
@@ -37,7 +42,11 @@ const OFFLINE_GAMES = [
   { id: 'offline-bubble', title: 'Bubble Pop 🫧', desc: 'Pop bubbles containing numbers in ascending order as fast as possible!', emoji: '🫧', color: '#ec4899' },
   { id: 'offline-color', title: 'Stroop Match 🔴', desc: 'Stroop cognitive test. Match colored words with their ink color!', emoji: '🔴', color: '#dc2626' },
   { id: 'offline-flappy', title: 'Flappy Heart 💖', desc: 'Flap a cute heart to fly between columns without crashing!', emoji: '💖', color: '#be123c' },
-  { id: 'offline-trivia', title: 'Trivia Quiz 🧠', desc: 'Test your knowledge with multiple choice general trivia questions!', emoji: '🧠', color: '#4c1d95' },
+  { id: 'offline-trivia', title: 'Trivia Quiz 🧠', desc: 'Test your knowledge with 30 shuffled trivia questions!', emoji: '🧠', color: '#4c1d95' },
+  { id: 'offline-hangman', title: 'Hangman Love 💀❤️', desc: 'Guess the hidden love-themed word letter by letter before you run out!', emoji: '💀', color: '#7c3aed' },
+  { id: 'offline-fastfacts', title: 'Fast Facts ⚡', desc: 'True or False rapid-fire quiz — 60 seconds, 30 wild facts!', emoji: '⚡', color: '#059669' },
+  { id: 'offline-lovecalc', title: 'Love Calculator 💕', desc: 'Answer 10 fun personality questions to reveal your love score!', emoji: '💕', color: '#ec4899' },
+  { id: 'offline-guessprize', title: 'Guess the Price 💰', desc: 'Guess how much everyday items cost — closest guess wins points!', emoji: '💰', color: '#ca8a04' },
 ];
 
 interface Props {
