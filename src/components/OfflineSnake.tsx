@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { ArrowLeft, Play, Trophy } from 'lucide-react';
 
-// ─── Config ────────────────────────────────────────────────────────────────────
+// ─── Config ─────────────────────────────────────────────────────────────────
 const COLS = 18;
 const ROWS = 16;
-const CELL = 26; // px per cell
+const CELL = 26; // logical px per cell (actual canvas uses DPR scaling)
 
 type Dir = 'UP' | 'DOWN' | 'LEFT' | 'RIGHT';
 interface Pt { x: number; y: number; }
@@ -33,12 +33,13 @@ export const OfflineSnake: React.FC<Props> = ({ onBack }) => {
   const rafRef = useRef<number | null>(null);
   const lastTickRef = useRef(0);
   const speedRef = useRef(130);
+  const dprRef = useRef(1);
 
   const [phase, setPhase] = useState<'idle' | 'playing' | 'dead'>('idle');
   const [score, setScore] = useState(0);
   const [best, setBest] = useState(() => parseInt(localStorage.getItem('snake_best') ?? '0'));
 
-  // ── Draw ──────────────────────────────────────────────────────────────────
+  // ── Draw ─────────────────────────────────────────────────────────────────
   const draw = useCallback(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -67,11 +68,19 @@ export const OfflineSnake: React.FC<Props> = ({ onBack }) => {
     const snake = snakeRef.current;
     snake.forEach((seg, i) => {
       const t = i / snake.length;
-      // Gradient purple → violet
       const r = Math.round(124 + t * 55);
       const g = Math.round(58 + t * 80);
-      const b = Math.round(237);
+      const b = 237;
       ctx.fillStyle = `rgba(${r},${g},${b},${i === 0 ? 1 : 0.85})`;
+
+      // Shadow on head
+      if (i === 0) {
+        ctx.shadowColor = 'rgba(124,58,237,0.4)';
+        ctx.shadowBlur = 8;
+      } else {
+        ctx.shadowBlur = 0;
+      }
+
       const pad = i === 0 ? 1 : 2;
       const radius = i === 0 ? 7 : 5;
       const x = seg.x * CELL + pad;
@@ -90,6 +99,7 @@ export const OfflineSnake: React.FC<Props> = ({ onBack }) => {
       ctx.arcTo(x, y, x + radius, y, radius);
       ctx.closePath();
       ctx.fill();
+      ctx.shadowBlur = 0;
 
       // Head eyes
       if (i === 0) {
@@ -103,7 +113,7 @@ export const OfflineSnake: React.FC<Props> = ({ onBack }) => {
     });
   }, []);
 
-  // ── Game loop ─────────────────────────────────────────────────────────────
+  // ── Game loop ────────────────────────────────────────────────────────────
   const loop = useCallback((ts: number) => {
     if (phaseRef.current !== 'playing') return;
     draw();
@@ -119,14 +129,12 @@ export const OfflineSnake: React.FC<Props> = ({ onBack }) => {
         y: d === 'UP' ? head.y - 1 : d === 'DOWN' ? head.y + 1 : head.y,
       };
 
-      // Wall collision
       if (nh.x < 0 || nh.x >= COLS || nh.y < 0 || nh.y >= ROWS) {
         phaseRef.current = 'dead';
         setPhase('dead');
         setBest(prev => { const n = Math.max(prev, scoreRef.current); localStorage.setItem('snake_best', String(n)); return n; });
         return;
       }
-      // Self collision
       if (snakeRef.current.some(s => s.x === nh.x && s.y === nh.y)) {
         phaseRef.current = 'dead';
         setPhase('dead');
@@ -184,7 +192,23 @@ export const OfflineSnake: React.FC<Props> = ({ onBack }) => {
     return () => window.removeEventListener('keydown', onKey);
   }, [changeDir]);
 
-  useEffect(() => { draw(); }, [draw]);
+  // HiDPI canvas setup on mount
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const dpr = window.devicePixelRatio || 1;
+    dprRef.current = dpr;
+    const W = COLS * CELL;
+    const H = ROWS * CELL;
+    canvas.width = W * dpr;
+    canvas.height = H * dpr;
+    canvas.style.width = `${W}px`;
+    canvas.style.height = `${H}px`;
+    const ctx = canvas.getContext('2d')!;
+    ctx.scale(dpr, dpr);
+    draw();
+  }, [draw]);
+
   useEffect(() => () => { if (rafRef.current) cancelAnimationFrame(rafRef.current); }, []);
 
   const W = COLS * CELL;
@@ -220,9 +244,11 @@ export const OfflineSnake: React.FC<Props> = ({ onBack }) => {
         {/* Canvas */}
         <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '0.8rem' }}>
           <div style={{ position: 'relative', border: '3px solid #a78bfa', borderRadius: '14px', overflow: 'hidden', boxShadow: '0 4px 20px rgba(124,58,237,0.2)' }}>
-            <canvas ref={canvasRef} width={W} height={H} style={{ display: 'block', maxWidth: '100%' }} />
+            <canvas
+              ref={canvasRef}
+              style={{ display: 'block', width: `${W}px`, height: `${H}px`, maxWidth: '100%' }}
+            />
 
-            {/* Overlay for idle/dead */}
             {phase !== 'playing' && (
               <div style={{
                 position: 'absolute', inset: 0, background: 'rgba(245,243,255,0.93)',

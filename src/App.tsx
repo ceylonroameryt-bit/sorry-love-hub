@@ -40,6 +40,40 @@ import { HotOrNot } from './components/HotOrNot';
 import { FinishSentence } from './components/FinishSentence';
 import { CoupleConfessions } from './components/CoupleConfessions';
 import { ThisOrThat } from './components/ThisOrThat';
+
+// Integrated Games
+import { DreamDate } from './components/DreamDate';
+import { MoodMirror } from './components/MoodMirror';
+import { StarGazing } from './components/StarGazing';
+import { TreasureHunt } from './components/TreasureHunt';
+import { OfflineLudo } from './components/OfflineLudo';
+
+// New Online Games
+import { TicTacToeOnline } from './components/TicTacToeOnline';
+import { ConnectFourOnline } from './components/ConnectFourOnline';
+import { MemoryMatchOnline } from './components/MemoryMatchOnline';
+import { LudoOnline } from './components/LudoOnline';
+import { DoodleOnline } from './components/DoodleOnline';
+import { BubblePopOnline } from './components/BubblePopOnline';
+import { HeartTapDuelOnline } from './components/HeartTapDuelOnline';
+import { SimonSaysOnline } from './components/SimonSaysOnline';
+import { ReactionTapOnline } from './components/ReactionTapOnline';
+import { SnakeDuelOnline } from './components/SnakeDuelOnline';
+
+// Online Games Batch 2
+import { ReversiOnline } from './components/ReversiOnline';
+import { CheckersOnline } from './components/CheckersOnline';
+import { BattleshipOnline } from './components/BattleshipOnline';
+import { WordChainOnline } from './components/WordChainOnline';
+import { PianoTilesOnline } from './components/PianoTilesOnline';
+import { ColorClashOnline } from './components/ColorClashOnline';
+import { BlockStackerOnline } from './components/BlockStackerOnline';
+import { ArcheryOnline } from './components/ArcheryOnline';
+import { MinesweeperDuelOnline } from './components/MinesweeperDuelOnline';
+import { EmojiSprintOnline } from './components/EmojiSprintOnline';
+
+import { TaylorMusicWidget } from './components/TaylorMusicWidget';
+import { triggerHaptic } from './utils/haptics';
 import { playSound, triggerVibration } from './utils/effects';
 import { Heart, Gamepad2 } from 'lucide-react';
 import './App.css';
@@ -59,12 +93,14 @@ const MainAppContent: React.FC = () => {
           target.tagName === 'A' || 
           target.classList.contains('btn-cute') || 
           target.classList.contains('card-game') || 
+          target.classList.contains('carnival-booth') ||
           target.classList.contains('alpha-key') ||
           target.getAttribute('role') === 'button';
 
         if (isClickable) {
           playSound('click');
-          triggerVibration(25);
+          triggerVibration(20);
+          triggerHaptic('light');
           break;
         }
         target = target.parentElement;
@@ -84,17 +120,26 @@ const MainAppContent: React.FC = () => {
       <header className="app-header">
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
           <div style={{
-            background: 'linear-gradient(135deg, #7c3aed, #ec4899)',
+            background: 'rgba(255,255,255,0.2)',
             borderRadius: '10px', padding: '6px', display: 'flex',
+            border: '2px solid rgba(255,255,255,0.4)',
           }}>
             <Heart size={18} fill="#fff" color="#fff" style={{ animation: 'wiggle 1s ease infinite' }} />
           </div>
-          <span className="font-cute app-title">Ape Punchi Game Room (අපේ පුංචි ගේම් රූම්) 🎮</span>
+          <div>
+            <div className="app-title">Ape Punchi Game Room 🎡</div>
+            <div style={{ fontSize: '0.65rem', color: 'rgba(255,255,255,0.7)', fontFamily: 'var(--font-cute)', lineHeight: 1 }}>අපේ පුංචි ගේම් රූම්</div>
+          </div>
         </div>
 
         <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
           {(isPlayingOnline || isPlayingLocal) && (
-            <span className="badge-cute" style={{ fontSize: '0.75rem' }}>
+            <span style={{
+              display: 'inline-flex', alignItems: 'center', gap: '4px',
+              background: 'rgba(255,255,255,0.2)', border: '2px solid rgba(255,255,255,0.4)',
+              borderRadius: '50px', padding: '0.25rem 0.8rem',
+              fontFamily: 'var(--font-cute)', fontSize: '0.8rem', color: '#fff', fontWeight: 700,
+            }}>
               <Gamepad2 size={12} /> Playing
             </span>
           )}
@@ -127,6 +172,7 @@ const MainAppContent: React.FC = () => {
         {isPlayingLocal && localGame === 'offline-lovecalc' && <OfflineLoveCalc onBack={() => setLocalGame(null)} />}
         {isPlayingLocal && localGame === 'offline-guessprize' && <OfflineGuessPrize onBack={() => setLocalGame(null)} />}
         {isPlayingLocal && localGame === 'offline-loveclicker' && <OfflineLoveClicker onBack={() => setLocalGame(null)} />}
+        {isPlayingLocal && localGame === 'offline-ludo' && <OfflineLudo onBack={() => setLocalGame(null)} />}
 
         {/* Online games */}
         {!isPlayingLocal && !activeGame && <Lobby onSelectLocalGame={setLocalGame} />}
@@ -146,15 +192,50 @@ const MainAppContent: React.FC = () => {
         {!isPlayingLocal && activeGame === 'finish-sentence' && <FinishSentence />}
         {!isPlayingLocal && activeGame === 'couple-confessions' && <CoupleConfessions />}
         {!isPlayingLocal && activeGame === 'this-or-that' && <ThisOrThat />}
+        
+        {/* Integrated Games */}
+        {!isPlayingLocal && activeGame === 'dream-date' && <DreamDate />}
+        {!isPlayingLocal && activeGame === 'mood-mirror' && <MoodMirror />}
+        {!isPlayingLocal && activeGame === 'star-gazing' && <StarGazing />}
+        {!isPlayingLocal && activeGame === 'treasure-hunt' && <TreasureHunt />}
+
+        {/* New Online Games */}
+        {!isPlayingLocal && activeGame === 'ttt-online' && <TicTacToeOnline />}
+        {!isPlayingLocal && activeGame === 'connect4-online' && <ConnectFourOnline />}
+        {!isPlayingLocal && activeGame === 'memory-online' && <MemoryMatchOnline />}
+        {!isPlayingLocal && activeGame === 'ludo-online' && <LudoOnline />}
+        {!isPlayingLocal && activeGame === 'doodle-online' && <DoodleOnline />}
+        {!isPlayingLocal && activeGame === 'bubble-online' && <BubblePopOnline />}
+        {!isPlayingLocal && activeGame === 'heart-tap-online' && <HeartTapDuelOnline />}
+        {!isPlayingLocal && activeGame === 'simon-online' && <SimonSaysOnline />}
+        {!isPlayingLocal && activeGame === 'reaction-online' && <ReactionTapOnline />}
+        {!isPlayingLocal && activeGame === 'snake-online' && <SnakeDuelOnline />}
+
+        {/* Online Games Batch 2 */}
+        {!isPlayingLocal && activeGame === 'reversi-online' && <ReversiOnline />}
+        {!isPlayingLocal && activeGame === 'checkers-online' && <CheckersOnline />}
+        {!isPlayingLocal && activeGame === 'battleship-online' && <BattleshipOnline />}
+        {!isPlayingLocal && activeGame === 'word-chain-online' && <WordChainOnline />}
+        {!isPlayingLocal && activeGame === 'piano-tiles-online' && <PianoTilesOnline />}
+        {!isPlayingLocal && activeGame === 'color-clash-online' && <ColorClashOnline />}
+        {!isPlayingLocal && activeGame === 'block-stacker-online' && <BlockStackerOnline />}
+        {!isPlayingLocal && activeGame === 'archery-online' && <ArcheryOnline />}
+        {!isPlayingLocal && activeGame === 'minesweeper-online' && <MinesweeperDuelOnline />}
+        {!isPlayingLocal && activeGame === 'emoji-sprint-online' && <EmojiSprintOnline />}
       </main>
+
+      {/* Taylor Swift Dynamic Island Floating Music Widget */}
+      <TaylorMusicWidget />
 
       <footer style={{
         textAlign: 'center', padding: '1rem',
-        color: '#a78bfa', fontSize: '0.82rem',
-        borderTop: '1px solid #ede9fe',
-        background: 'rgba(255,255,255,0.7)',
+        color: 'rgba(255,255,255,0.6)', fontSize: '0.82rem',
+        borderTop: '1px solid rgba(255,255,255,0.1)',
+        background: 'rgba(15, 10, 30, 0.75)',
+        backdropFilter: 'blur(16px)',
+        fontFamily: 'var(--font-cute)',
       }}>
-        Made with 💜 love and sorry hugs — just for you
+        Made with 💖 love, Taylor Swift tunes & mobile haptics • Ape Punchi Game Room 🎡
       </footer>
     </div>
   );

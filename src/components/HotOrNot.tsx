@@ -2,23 +2,7 @@ import React from 'react';
 import { useGamePeer } from '../utils/peerConnection';
 import { ArrowLeft, RefreshCw, Heart, Award } from 'lucide-react';
 
-const TOPICS = [
-  { topic: "How spicy do you like your food? 🌶️", emoji: '🌶️' },
-  { topic: "How romantic are you on a scale? 💕", emoji: '💕' },
-  { topic: "How adventurous are you with travel? ✈️", emoji: '✈️' },
-  { topic: "How much of a morning person are you? ☀️", emoji: '☀️' },
-  { topic: "How good are you at keeping secrets? 🤫", emoji: '🤫' },
-  { topic: "How competitive are you in games? 🎮", emoji: '🎮' },
-  { topic: "How much do you love cuddles? 🤗", emoji: '🤗' },
-  { topic: "How patient are you in relationships? 💜", emoji: '💜' },
-  { topic: "How much do you enjoy dancing? 💃", emoji: '💃' },
-  { topic: "How big of a foodie are you? 🍜", emoji: '🍜' },
-  { topic: "How good are you at cooking? 👨‍🍳", emoji: '👨‍🍳' },
-  { topic: "How much do you love surprises? 🎁", emoji: '🎁' },
-  { topic: "How social are you at parties? 🎉", emoji: '🎉' },
-  { topic: "How much do you love horror movies? 👻", emoji: '👻' },
-  { topic: "How bad is your sense of direction? 🗺️", emoji: '🗺️' },
-];
+import { HOT_OR_NOT_TOPICS as TOPICS } from '../data/questions';
 
 interface HonState {
   phase: 'voting' | 'reveal' | 'ended';

@@ -2,23 +2,7 @@ import React, { useState } from 'react';
 import { useGamePeer } from '../utils/peerConnection';
 import { ArrowLeft, RefreshCw, Heart, Award, Send } from 'lucide-react';
 
-const PROMPTS = [
-  "The best part of my day is when...",
-  "If I could go anywhere right now, I would go to...",
-  "My secret talent is...",
-  "I always laugh when I think about...",
-  "The thing I love most about you is...",
-  "If we had a pet together, we would name it...",
-  "My perfect Sunday morning looks like...",
-  "One day I want us to...",
-  "The funniest thing that happened this week was...",
-  "Something that always cheers me up is...",
-  "My favourite memory of us is...",
-  "A song that makes me think of you is...",
-  "If I wrote a book about us, the title would be...",
-  "I feel happiest when...",
-  "Something I want you to know is...",
-];
+import { FINISH_SENTENCE_PROMPTS as PROMPTS } from '../data/questions';
 
 interface FsState {
   phase: 'writing' | 'reading' | 'ended';

@@ -2,38 +2,7 @@ import React from 'react';
 import { useGamePeer } from '../utils/peerConnection';
 import { ArrowLeft, RefreshCw, Award, Heart, Check, X } from 'lucide-react';
 
-interface Question {
-  optionA: string;
-  optionB: string;
-}
-
-const ALL_QUESTIONS: Question[] = [
-  { optionA: "Live in a cozy cabin in the snowy mountains 🏔️", optionB: "Live in a sunny beach cottage 🏖️" },
-  { optionA: "Have unlimited free pizzas forever 🍕", optionB: "Have unlimited free sushi & mochi 🍣" },
-  { optionA: "Be able to fly anywhere ✈️", optionB: "Be able to teleport anywhere 🌀" },
-  { optionA: "Go on a road trip across the country 🚗", optionB: "Go on a luxury cruise across the ocean 🚢" },
-  { optionA: "Have a cute pet panda 🐼", optionB: "Have a cute pet koala 🐨" },
-  { optionA: "Only watch movies/shows 🎬", optionB: "Only listen to music 🎵" },
-  { optionA: "Wake up early for sunrise 🌅", optionB: "Stay up late for the stars 🌙" },
-  { optionA: "Always tell the truth 🤫", optionB: "Always know when someone is lying 🕵️" },
-  { optionA: "Explore a futuristic space station 🚀", optionB: "Explore an ancient underwater castle 🏰" },
-  { optionA: "Be 10 minutes early to everything ⏰", optionB: "Be 10 minutes late but look amazing 💅" },
-  { optionA: "Live without your phone for a month 📵", optionB: "Live without the internet for a month 🌐" },
-  { optionA: "Have the ability to speak every language 🗣️", optionB: "Have the ability to play every instrument 🎸" },
-  { optionA: "Always eat your favourite food every day 🍜", optionB: "Travel the world and try new foods 🌍" },
-  { optionA: "Be famous but unhappy 🌟", optionB: "Be unknown but very happy 😊" },
-  { optionA: "Have a dog for life 🐶", optionB: "Have a cat for life 🐱" },
-  { optionA: "Read minds for a day 🧠", optionB: "Be invisible for a day 👻" },
-  { optionA: "Never be cold again ❄️", optionB: "Never be hot again 🔥" },
-  { optionA: "Meet your idol once 🌟", optionB: "Go on your dream vacation 🌴" },
-  { optionA: "Be a billionaire for a year 💰", optionB: "Be healthy forever 💚" },
-  { optionA: "Live with no stress ever 😌", optionB: "Have 5 extra hours per day ⏳" },
-  { optionA: "Have a cute tiny house all yours 🏡", optionB: "Have a massive mansion to share 🏰" },
-  { optionA: "Always win every argument 🏅", optionB: "Always have the last laugh 😂" },
-  { optionA: "See the future 🔮", optionB: "Change the past ⏪" },
-  { optionA: "Work from home forever 🏠", optionB: "Work at an amazing office 🏢" },
-  { optionA: "Eat sweets every meal 🍰", optionB: "Eat savoury every meal 🧀" },
-];
+import { WYR_QUESTIONS as ALL_QUESTIONS } from '../data/questions';
 
 interface WyrState {
   phase: 'voting' | 'reveal' | 'ended';

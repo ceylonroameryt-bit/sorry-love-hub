@@ -3,10 +3,10 @@ import { ArrowLeft, Play, Trophy } from 'lucide-react';
 
 interface FallingItem {
   id: string;
-  x: number;
-  y: number;
+  x: number;   // percentage
+  y: number;   // percentage (0-100)
   type: 'heart' | 'star' | 'cupcake' | 'bomb';
-  speed: number;
+  vy: number;  // velocity in %/sec
 }
 
 const EMOJI_MAP: Record<string, string> = { heart: '💖', star: '🌟', cupcake: '🧁', bomb: '💣' };
@@ -17,58 +17,111 @@ interface Props { onBack: () => void; }
 
 export const OfflineCupidCatch: React.FC<Props> = ({ onBack }) => {
   const [phase, setPhase] = useState<'idle' | 'playing' | 'ended'>('idle');
-  const [items, setItems] = useState<FallingItem[]>([]);
   const [score, setScore] = useState(0);
   const [timeLeft, setTimeLeft] = useState(GAME_DURATION);
-  const [basketX, setBasketX] = useState(50);
-  const [caught, setCaught] = useState<{ id: string; emoji: string; pts: number; x: number }[]>([]);
   const [bestScore, setBestScore] = useState(() => parseInt(localStorage.getItem('cupid_best') ?? '0'));
 
+  // All game positions tracked via refs — never trigger React render per frame
+  const itemsRef = useRef<FallingItem[]>([]);
+  const scoreRef = useRef(0);
+  const basketXRef = useRef(50);
+  const phaseRef = useRef<'idle' | 'playing' | 'ended'>('idle');
+  const lastTsRef = useRef<number>(0);
+
   const containerRef = useRef<HTMLDivElement>(null);
-  const loopRef = useRef<number | null>(null);
+  const rafRef = useRef<number | null>(null);
   const spawnRef = useRef<number | null>(null);
   const timerRef = useRef<number | null>(null);
-  const stateRef = useRef({ items, score: 0, basketX: 50, phase: 'idle' as string });
-  const basketXRef = useRef(50);
+  const renderRef = useRef<HTMLDivElement>(null); // container for emoji divs
 
-  const clearAll = () => {
-    if (loopRef.current) cancelAnimationFrame(loopRef.current);
+  // Caught popups (only updated when item is caught – low frequency)
+  const [caught, setCaught] = useState<{ id: string; emoji: string; pts: number; x: number }[]>([]);
+
+  const clearAll = useCallback(() => {
+    if (rafRef.current) cancelAnimationFrame(rafRef.current);
     if (spawnRef.current) clearInterval(spawnRef.current);
     if (timerRef.current) clearInterval(timerRef.current);
-  };
+  }, []);
+
+  /** Imperatively update the DOM emoji elements — no React setState per frame */
+  const flushDOM = useCallback(() => {
+    const container = renderRef.current;
+    if (!container) return;
+    const items = itemsRef.current;
+
+    // Build a map of existing divs by id
+    const existing: Record<string, HTMLElement> = {};
+    for (const el of Array.from(container.children) as HTMLElement[]) {
+      existing[el.dataset.id!] = el;
+    }
+    const seen = new Set<string>();
+
+    items.forEach(item => {
+      seen.add(item.id);
+      let el = existing[item.id];
+      if (!el) {
+        el = document.createElement('div');
+        el.dataset.id = item.id;
+        el.style.cssText = `
+          position:absolute;pointer-events:none;user-select:none;
+          font-size:1.7rem;transform:translate(-50%,-50%);
+          filter:drop-shadow(0 2px 4px rgba(0,0,0,0.12));
+          will-change:top;
+        `;
+        el.textContent = EMOJI_MAP[item.type];
+        container.appendChild(el);
+      }
+      el.style.left = `${item.x}%`;
+      el.style.top = `${item.y}%`;
+    });
+
+    // Remove stale
+    for (const [id, el] of Object.entries(existing)) {
+      if (!seen.has(id)) el.remove();
+    }
+  }, []);
+
+  /** Also imperatively update basket position */
+  const basketRef = useRef<HTMLDivElement>(null);
+  const updateBasketDOM = useCallback(() => {
+    if (basketRef.current) {
+      basketRef.current.style.left = `${basketXRef.current}%`;
+    }
+  }, []);
 
   const startGame = useCallback(() => {
     clearAll();
-    stateRef.current = { items: [], score: 0, basketX: 50, phase: 'playing' };
+    itemsRef.current = [];
+    scoreRef.current = 0;
     basketXRef.current = 50;
-    setItems([]);
+    lastTsRef.current = 0;
+    phaseRef.current = 'playing';
     setScore(0);
     setCaught([]);
     setTimeLeft(GAME_DURATION);
-    setBasketX(50);
     setPhase('playing');
 
+    // Spawn items every 750ms
     spawnRef.current = window.setInterval(() => {
       const types: FallingItem['type'][] = ['heart', 'heart', 'star', 'cupcake', 'bomb'];
-      const item: FallingItem = {
+      itemsRef.current.push({
         id: Math.random().toString(36).slice(2),
         x: Math.random() * 80 + 10,
-        y: 0,
+        y: -5,
         type: types[Math.floor(Math.random() * types.length)],
-        speed: 0.8 + Math.random() * 1.4,
-      };
-      stateRef.current.items = [...stateRef.current.items, item];
-      setItems([...stateRef.current.items]);
-    }, 800);
+        vy: 8 + Math.random() * 8, // %/sec
+      });
+    }, 750);
 
+    // Countdown
     timerRef.current = window.setInterval(() => {
       setTimeLeft(t => {
         if (t <= 1) {
           clearAll();
-          stateRef.current.phase = 'ended';
+          phaseRef.current = 'ended';
           setPhase('ended');
           setBestScore(prev => {
-            const next = Math.max(prev, stateRef.current.score);
+            const next = Math.max(prev, scoreRef.current);
             localStorage.setItem('cupid_best', String(next));
             return next;
           });
@@ -78,62 +131,73 @@ export const OfflineCupidCatch: React.FC<Props> = ({ onBack }) => {
       });
     }, 1000);
 
-    const BASKET_Y = 82;
-    const RADIUS = 9;
+    const BASKET_Y_PCT = 83;
+    const CATCH_RADIUS_X = 9;  // percentage
 
-    const tick = () => {
-      if (stateRef.current.phase !== 'playing') return;
+    const tick = (ts: number) => {
+      if (phaseRef.current !== 'playing') return;
+
+      const dt = lastTsRef.current === 0 ? 0 : Math.min((ts - lastTsRef.current) / 1000, 0.1);
+      lastTsRef.current = ts;
+
       const bx = basketXRef.current;
-      let pts = stateRef.current.score;
-      const newCaught: typeof caught = [];
+      let pts = scoreRef.current;
+      const newCaught: { id: string; emoji: string; pts: number; x: number }[] = [];
 
-      stateRef.current.items = stateRef.current.items
-        .map(item => ({ ...item, y: item.y + item.speed * 1.6 }))
-        .filter(item => {
-          if (item.y > 95) return false;
-          if (item.y >= BASKET_Y - 3 && item.y <= BASKET_Y + 6 && Math.abs(item.x - bx) < RADIUS) {
-            const p = POINTS[item.type];
-            pts = Math.max(0, pts + p);
-            newCaught.push({ id: item.id, emoji: EMOJI_MAP[item.type], pts: p, x: item.x });
-            return false;
-          }
-          return true;
-        });
+      if (dt > 0) {
+        itemsRef.current = itemsRef.current
+          .map(item => ({ ...item, y: item.y + item.vy * dt }))
+          .filter(item => {
+            if (item.y > 100) return false;
+            // Catch detection
+            if (
+              item.y >= BASKET_Y_PCT - 4 &&
+              item.y <= BASKET_Y_PCT + 7 &&
+              Math.abs(item.x - bx) < CATCH_RADIUS_X
+            ) {
+              const p = POINTS[item.type];
+              pts = Math.max(0, pts + p);
+              newCaught.push({ id: item.id, emoji: EMOJI_MAP[item.type], pts: p, x: item.x });
+              return false;
+            }
+            return true;
+          });
 
-      stateRef.current.score = pts;
-      setItems([...stateRef.current.items]);
-      setScore(pts);
-      if (newCaught.length > 0) {
-        setCaught(prev => [...prev.slice(-6), ...newCaught]);
+        scoreRef.current = pts;
+        // Only update React state for score (low frequency via caught items)
+        if (newCaught.length > 0) {
+          setScore(pts);
+          setCaught(prev => [...prev.slice(-6), ...newCaught]);
+        }
       }
-      loopRef.current = requestAnimationFrame(tick);
-    };
-    loopRef.current = requestAnimationFrame(tick);
-  }, []);
 
-  useEffect(() => () => clearAll(), []);
+      flushDOM();
+      rafRef.current = requestAnimationFrame(tick);
+    };
+    rafRef.current = requestAnimationFrame(tick);
+  }, [clearAll, flushDOM]);
+
+  useEffect(() => () => clearAll(), [clearAll]);
 
   const handleMove = useCallback((e: React.MouseEvent<HTMLDivElement> | React.TouchEvent<HTMLDivElement>) => {
     if (!containerRef.current) return;
     const rect = containerRef.current.getBoundingClientRect();
     const clientX = 'touches' in e ? e.touches[0]?.clientX : e.clientX;
-    if (!clientX) return;
-    const x = Math.max(5, Math.min(95, ((clientX - rect.left) / rect.width) * 100));
-    basketXRef.current = x;
-    stateRef.current.basketX = x;
-    setBasketX(x);
-  }, []);
+    if (clientX == null) return;
+    basketXRef.current = Math.max(7, Math.min(93, ((clientX - rect.left) / rect.width) * 100));
+    updateBasketDOM();
+  }, [updateBasketDOM]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (phase !== 'playing') return;
-      const step = 4;
-      if (e.key === 'ArrowLeft') { basketXRef.current = Math.max(5, basketXRef.current - step); setBasketX(basketXRef.current); }
-      if (e.key === 'ArrowRight') { basketXRef.current = Math.min(95, basketXRef.current + step); setBasketX(basketXRef.current); }
+      if (phaseRef.current !== 'playing') return;
+      const step = 3.5;
+      if (e.key === 'ArrowLeft') { basketXRef.current = Math.max(7, basketXRef.current - step); updateBasketDOM(); }
+      if (e.key === 'ArrowRight') { basketXRef.current = Math.min(93, basketXRef.current + step); updateBasketDOM(); }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [phase]);
+  }, [updateBasketDOM]);
 
   const timerPct = (timeLeft / GAME_DURATION) * 100;
 
@@ -155,7 +219,7 @@ export const OfflineCupidCatch: React.FC<Props> = ({ onBack }) => {
             <h2 className="heading-lg">Cupid's Catch!</h2>
             <p style={{ color: '#6b7280', maxWidth: '480px', margin: '0 auto 1rem', lineHeight: 1.7 }}>
               Move your basket to catch falling <strong>💖 Hearts</strong> (+1), <strong>🌟 Stars</strong> (+2), and <strong>🧁 Cupcakes</strong> (+3)!<br />
-              Dodge the <strong>💣 Bombs</strong> (−5)! Use <kbd style={{ background: '#f5f3ff', border: '1px solid #ddd6fe', borderRadius: '4px', padding: '1px 5px' }}>←</kbd> <kbd style={{ background: '#f5f3ff', border: '1px solid #ddd6fe', borderRadius: '4px', padding: '1px 5px' }}>→</kbd> or move your mouse.
+              Dodge the <strong>💣 Bombs</strong> (−5)! Use <kbd style={{ background: '#f5f3ff', border: '1px solid #ddd6fe', borderRadius: '4px', padding: '1px 5px' }}>←</kbd> <kbd style={{ background: '#f5f3ff', border: '1px solid #ddd6fe', borderRadius: '4px', padding: '1px 5px' }}>→</kbd> or move your mouse/finger.
             </p>
             {bestScore > 0 && (
               <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', background: '#fef9c3', border: '1px solid #fde68a', borderRadius: '50px', padding: '0.4rem 1.1rem', marginBottom: '1.5rem', color: '#92400e', fontWeight: 700 }}>
@@ -193,7 +257,7 @@ export const OfflineCupidCatch: React.FC<Props> = ({ onBack }) => {
               <div style={{ height: '100%', width: `${timerPct}%`, background: timerPct < 30 ? '#dc2626' : 'linear-gradient(90deg,#7c3aed,#a78bfa)', borderRadius: '99px', transition: 'width 1s linear' }} />
             </div>
 
-            {/* Game arena */}
+            {/* Game arena — pure DOM, no React re-render per frame */}
             {phase === 'playing' && (
               <div
                 ref={containerRef}
@@ -204,6 +268,7 @@ export const OfflineCupidCatch: React.FC<Props> = ({ onBack }) => {
                   background: 'linear-gradient(180deg,#f5f3ff,#ede9fe)',
                   borderRadius: '18px', border: '2px dashed #c4b5fd',
                   overflow: 'hidden', userSelect: 'none', cursor: 'none',
+                  touchAction: 'none',
                 }}
               >
                 {/* Decorative stars */}
@@ -211,19 +276,10 @@ export const OfflineCupidCatch: React.FC<Props> = ({ onBack }) => {
                   <div key={i} style={{ position: 'absolute', left: l, top: `${10 + i * 7}%`, fontSize: '0.65rem', opacity: 0.25, animation: `float ${2 + i}s ease-in-out infinite`, animationDelay: `${i * 0.4}s` }}>⭐</div>
                 ))}
 
-                {/* Floating items */}
-                {items.map(item => (
-                  <div key={item.id} style={{
-                    position: 'absolute', left: `${item.x}%`, top: `${item.y}%`,
-                    transform: 'translate(-50%,-50%)', fontSize: '1.7rem',
-                    pointerEvents: 'none', userSelect: 'none',
-                    filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.12))',
-                  }}>
-                    {EMOJI_MAP[item.type]}
-                  </div>
-                ))}
+                {/* Imperatively rendered emoji items */}
+                <div ref={renderRef} style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }} />
 
-                {/* Score popups */}
+                {/* Score popups (low frequency React state) */}
                 {caught.map(c => (
                   <div key={c.id} style={{
                     position: 'absolute', left: `${c.x}%`, bottom: '22%',
@@ -237,13 +293,17 @@ export const OfflineCupidCatch: React.FC<Props> = ({ onBack }) => {
                   </div>
                 ))}
 
-                {/* Basket */}
-                <div style={{
-                  position: 'absolute', left: `${basketX}%`, bottom: '10%',
-                  transform: 'translateX(-50%)',
-                  display: 'flex', flexDirection: 'column', alignItems: 'center',
-                  pointerEvents: 'none',
-                }}>
+                {/* Basket (imperatively moved) */}
+                <div
+                  ref={basketRef}
+                  style={{
+                    position: 'absolute', left: '50%', bottom: '10%',
+                    transform: 'translateX(-50%)',
+                    display: 'flex', flexDirection: 'column', alignItems: 'center',
+                    pointerEvents: 'none', willChange: 'left',
+                    transition: 'left 0.03s linear',
+                  }}
+                >
                   <span style={{ fontSize: '2.6rem' }}>🧺</span>
                 </div>
 

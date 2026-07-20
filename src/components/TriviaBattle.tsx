@@ -2,44 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useGamePeer } from '../utils/peerConnection';
 import { ArrowLeft, RefreshCw, Award, Heart, Check, X, Clock, Zap } from 'lucide-react';
 
-interface Question {
-  text: string;
-  options: string[];
-  answer: string;
-}
-
-const ALL_QUESTIONS: Question[] = [
-  { text: "What is the capital city of Australia? 🇦🇺", options: ["Sydney", "Melbourne", "Canberra", "Brisbane"], answer: "Canberra" },
-  { text: "Which element has the chemical symbol 'O'? 🧪", options: ["Gold", "Oxygen", "Osmium", "Iron"], answer: "Oxygen" },
-  { text: "Who painted the Mona Lisa? 🎨", options: ["Vincent van Gogh", "Pablo Picasso", "Leonardo da Vinci", "Claude Monet"], answer: "Leonardo da Vinci" },
-  { text: "Which is the smallest country in the world? 🇻🇦", options: ["Monaco", "Vatican City", "Liechtenstein", "San Marino"], answer: "Vatican City" },
-  { text: "What is the primary gas in Earth's atmosphere? ☁️", options: ["Oxygen", "Nitrogen", "Carbon Dioxide", "Hydrogen"], answer: "Nitrogen" },
-  { text: "How many legs does a spider have? 🕷️", options: ["6", "8", "10", "12"], answer: "8" },
-  { text: "What is the largest land animal on Earth? 🐘", options: ["African Elephant", "Blue Whale", "Giraffe", "Hippopotamus"], answer: "African Elephant" },
-  { text: "Which language has the most native speakers? 🗣️", options: ["English", "Spanish", "Mandarin Chinese", "Hindi"], answer: "Mandarin Chinese" },
-  { text: "Which planet is closest to the Sun? ☀️", options: ["Venus", "Mercury", "Mars", "Earth"], answer: "Mercury" },
-  { text: "What is the name of the fairy in Peter Pan? 🧚", options: ["Tinker Bell", "Cinderella", "Ariel", "Belle"], answer: "Tinker Bell" },
-  { text: "What is the largest organ in the human body? 🧬", options: ["Heart", "Liver", "Skin", "Brain"], answer: "Skin" },
-  { text: "How many sides does a hexagon have? 🔷", options: ["5", "6", "7", "8"], answer: "6" },
-  { text: "Which country invented pizza? 🍕", options: ["France", "Spain", "Greece", "Italy"], answer: "Italy" },
-  { text: "What is the speed of light? ⚡", options: ["300,000 km/s", "150,000 km/s", "500,000 km/s", "100,000 km/s"], answer: "300,000 km/s" },
-  { text: "Who wrote Romeo and Juliet? 📖", options: ["Charles Dickens", "William Shakespeare", "Jane Austen", "Mark Twain"], answer: "William Shakespeare" },
-  { text: "What is the chemical symbol for gold? 🥇", options: ["Go", "Gd", "Au", "Ag"], answer: "Au" },
-  { text: "How many planets are in our solar system? 🪐", options: ["7", "8", "9", "10"], answer: "8" },
-  { text: "Which ocean is the largest? 🌊", options: ["Atlantic", "Indian", "Pacific", "Arctic"], answer: "Pacific" },
-  { text: "What is the capital of Japan? 🗾", options: ["Osaka", "Tokyo", "Kyoto", "Hiroshima"], answer: "Tokyo" },
-  { text: "What gas do plants absorb from the air? 🌿", options: ["Oxygen", "Nitrogen", "Carbon Dioxide", "Hydrogen"], answer: "Carbon Dioxide" },
-  { text: "Which sport uses a shuttlecock? 🏸", options: ["Tennis", "Badminton", "Squash", "Table Tennis"], answer: "Badminton" },
-  { text: "How many strings does a standard guitar have? 🎸", options: ["4", "5", "6", "7"], answer: "6" },
-  { text: "What is the longest river in the world? 🌍", options: ["Amazon", "Nile", "Yangtze", "Mississippi"], answer: "Nile" },
-  { text: "Which animal is the fastest on land? 🐆", options: ["Lion", "Horse", "Cheetah", "Gazelle"], answer: "Cheetah" },
-  { text: "In what year did World War II end? 🕊️", options: ["1943", "1944", "1945", "1946"], answer: "1945" },
-  { text: "What is H2O commonly known as? 💧", options: ["Hydrogen", "Water", "Salt Water", "Oxygen"], answer: "Water" },
-  { text: "Which fruit is known as the king of fruits? 🍑", options: ["Mango", "Durian", "Jackfruit", "Pineapple"], answer: "Mango" },
-  { text: "How many chambers does the human heart have? ❤️", options: ["2", "3", "4", "5"], answer: "4" },
-  { text: "Which country is home to the Great Wall? 🏯", options: ["Japan", "India", "China", "Korea"], answer: "China" },
-  { text: "What is the most-spoken language in the world? 🌐", options: ["English", "Spanish", "Mandarin", "Hindi"], answer: "Mandarin" },
-];
+import { TRIVIA_QUESTIONS as ALL_QUESTIONS } from '../data/questions';
 
 function shuffle<T>(arr: T[]): T[] {
   const a = [...arr];

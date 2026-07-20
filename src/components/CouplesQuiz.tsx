@@ -18,18 +18,7 @@ const INITIAL: QuizState = {
   guess: '', hostScore: 0, guestScore: 0, round: 1
 };
 
-const PROMPT_QUESTIONS = [
-  "What is my absolute favorite food? 🍕",
-  "Where was our first date? 🗺️",
-  "What is my favorite nickname for you? 💕",
-  "What is my biggest pet peeve? ⚡",
-  "What is my favorite movie or show? 🎬",
-  "What is my dream travel destination? ✈️",
-  "If I could have any superpower, what would it be? 🦸",
-  "Which song reminds me of you the most? 🎵",
-  "What makes me the happiest when I am sad? 😊",
-  "What was my very first impression of you? 👀"
-];
+import { COUPLES_QUIZ_PROMPTS as PROMPT_QUESTIONS } from '../data/questions';
 
 export const CouplesQuiz: React.FC = () => {
   const { role, sendGameAction, gameState, selectGame, opponentName } = useGamePeer();
