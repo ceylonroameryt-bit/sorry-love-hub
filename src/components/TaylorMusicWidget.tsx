@@ -168,7 +168,7 @@ export const TaylorMusicWidget: React.FC = () => {
             width: '38px',
             height: '38px',
             borderRadius: '50%',
-            background: 'linear-gradient(135deg, #a855f7, #ec4899)',
+            background: '#7c3aed',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
@@ -240,7 +240,7 @@ export const TaylorMusicWidget: React.FC = () => {
           <button
             onClick={handleTogglePlay}
             style={{
-              background: 'linear-gradient(135deg, #a855f7, #ec4899)',
+              background: '#7c3aed',
               border: 'none',
               borderRadius: '50%',
               width: '36px',
