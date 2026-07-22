@@ -60,6 +60,56 @@ body {
 }
 ::-webkit-scrollbar-thumb:hover { background: #a855f7; }
 
+/* ── Game Layout & Screen Fitting Utilities ── */
+.game-container-responsive {
+  width: 100%;
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 0.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  box-sizing: border-box;
+}
+
+.game-board-responsive {
+  width: 100%;
+  max-width: min(92vw, 480px);
+  aspect-ratio: 1 / 1;
+  margin: 0 auto;
+  touch-action: manipulation;
+}
+
+.canvas-responsive {
+  width: 100%;
+  max-width: 100%;
+  height: auto;
+  max-height: calc(100vh - 220px);
+  touch-action: none;
+  object-fit: contain;
+}
+
+.instruction-drawer {
+  background: #ffffff;
+  border: 2px solid #ddd6fe;
+  border-radius: 18px;
+  padding: 1rem 1.2rem;
+  margin-bottom: 0.75rem;
+  box-shadow: 0 4px 14px rgba(124, 58, 237, 0.08);
+  animation: pop-in 0.2s ease;
+}
+
+.instruction-drawer ul {
+  margin: 0.4rem 0 0 1.2rem;
+  padding: 0;
+}
+
+.instruction-drawer li {
+  margin-bottom: 0.3rem;
+  font-size: 0.88rem;
+  color: #4b5563;
+}
+
 /* ── Keyframe Animations ───────────────────────────── */
 @keyframes float {
   0%, 100% { transform: translateY(0px) rotate(0deg); }

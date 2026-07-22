@@ -1,13 +1,23 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useGamePeer } from '../utils/peerConnection';
-import { ArrowLeft, RefreshCw, Heart, Award, Send } from 'lucide-react';
-
+import { RefreshCw, Send } from 'lucide-react';
+import { GameHeader } from './GameHeader';
 import { FINISH_SENTENCE_PROMPTS as PROMPTS } from '../data/questions';
+
+function shuffle<T>(arr: T[]): T[] {
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
 
 interface FsState {
   phase: 'writing' | 'reading' | 'ended';
   round: number;
   promptIndex: number;
+  promptOrder: number[];
   hostHalf: string;
   guestHalf: string;
 }
@@ -15,17 +25,35 @@ interface FsState {
 const ROUNDS = 5;
 
 function makeInitial(): FsState {
-  return { phase: 'writing', round: 1, promptIndex: Math.floor(Math.random() * PROMPTS.length), hostHalf: '', guestHalf: '' };
+  const order = shuffle(PROMPTS.map((_, i) => i));
+  return {
+    phase: 'writing',
+    round: 1,
+    promptIndex: 0,
+    promptOrder: order.slice(0, ROUNDS),
+    hostHalf: '',
+    guestHalf: ''
+  };
 }
 
 export const FinishSentence: React.FC = () => {
-  const { role, sendGameAction, gameState, selectGame, opponentName } = useGamePeer();
+  const { role, sendGameAction, gameState, opponentName } = useGamePeer();
+
+  // Host auto-initialization for fresh shuffled prompts
+  useEffect(() => {
+    if (role === 'host' && (!gameState || !gameState.promptOrder)) {
+      sendGameAction(makeInitial());
+    }
+  }, [role, gameState, sendGameAction]);
+
   const state: FsState = gameState ?? makeInitial();
   const [draft, setDraft] = useState('');
 
-  const prompt = PROMPTS[state.promptIndex % PROMPTS.length];
+  const promptOrder = state.promptOrder ?? PROMPTS.map((_, i) => i).slice(0, ROUNDS);
+  const currentPromptIdx = promptOrder[state.promptIndex % promptOrder.length] ?? 0;
+  const prompt = PROMPTS[currentPromptIdx];
+
   const myHalf = role === 'host' ? state.hostHalf : state.guestHalf;
-  const theirHalf = role === 'host' ? state.guestHalf : state.hostHalf;
 
   const submit = () => {
     if (!draft.trim() || myHalf) return;
@@ -40,94 +68,148 @@ export const FinishSentence: React.FC = () => {
   const next = () => {
     if (role !== 'host') return;
     if (state.round >= ROUNDS) { sendGameAction({ ...state, phase: 'ended' }); return; }
-    sendGameAction({ ...makeInitial(), round: state.round + 1, phase: 'writing' });
+    sendGameAction({
+      ...state,
+      round: state.round + 1,
+      promptIndex: state.promptIndex + 1,
+      phase: 'writing',
+      hostHalf: '',
+      guestHalf: ''
+    });
     setDraft('');
   };
 
   const reset = () => { sendGameAction(makeInitial()); setDraft(''); };
 
   return (
-    <div className="container-cute" style={{ maxWidth: '660px' }}>
+    <div className="game-container-responsive">
+      <GameHeader
+        title="Finish the Sentence"
+        emoji="✍️"
+        instructions={[
+          "Read the sentence starter prompt together.",
+          "Both you and your partner complete the sentence independently in secret.",
+          "Once both submit, reveal and read each other's romantic or funny answers!"
+        ]}
+      />
+
       <div className="card-cute" style={{ background: '#faf5ff', border: '1.5px solid #ddd6fe' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
-          <button onClick={() => selectGame(null)} className="btn-cute btn-cute-secondary" style={{ padding: '0.4rem 0.9rem', fontSize: '0.85rem' }}>
-            <ArrowLeft size={15} /> Back
-          </button>
-          <span className="badge-cute">Finish the Sentence ✍️</span>
-          <button onClick={reset} className="btn-cute btn-cute-secondary" style={{ padding: '0.4rem 0.9rem', fontSize: '0.85rem' }}><RefreshCw size={14} /></button>
+        <div style={{ textAlign: 'center', marginBottom: '1.2rem' }}>
+          <span className="badge-cute" style={{ background: '#fce7f3', color: '#ec4899' }}>
+            Sentence {state.round} of {ROUNDS}
+          </span>
         </div>
 
-        <div style={{ textAlign: 'center', fontSize: '0.8rem', color: '#6b7280', marginBottom: '1.5rem' }}>
-          Round {state.round}/{ROUNDS} — Both complete the same prompt, then read each other's answer!
-        </div>
-
-        {/* Prompt */}
-        <div style={{ background: '#fff', border: '2px solid #ddd6fe', borderRadius: '20px', padding: '1.5rem', marginBottom: '1.5rem', textAlign: 'center' }}>
-          <Heart size={20} color="#ec4899" fill="#ec4899" style={{ marginBottom: '0.5rem', animation: 'pulse-gentle 2s infinite' }} />
-          <h3 className="font-cute" style={{ fontSize: '1.3rem', color: '#4c1d95', margin: 0, lineHeight: 1.5 }}>
-            "{prompt}"
-          </h3>
-        </div>
-
-        {state.phase === 'writing' && (
-          <div>
-            {!myHalf ? (
-              <div>
-                <textarea value={draft} onChange={e => setDraft(e.target.value)}
-                  placeholder="Write your completion here..."
-                  className="input-cute"
-                  rows={3}
-                  style={{ width: '100%', resize: 'none', fontSize: '1rem', fontFamily: 'inherit', marginBottom: '0.8rem' }} />
-                <button onClick={submit} disabled={!draft.trim()} className="btn-cute btn-cute-primary"
-                  style={{ width: '100%', justifyContent: 'center', background: 'linear-gradient(135deg,#7c3aed,#8b5cf6)' }}>
-                  <Send size={15} /> Submit My Answer
-                </button>
-              </div>
-            ) : (
-              <div style={{ textAlign: 'center', background: '#f5f3ff', borderRadius: '16px', padding: '1.2rem', animation: 'pop-in 0.3s ease' }}>
-                <div className="font-cute" style={{ color: '#7c3aed', marginBottom: '0.5rem' }}>✅ Your answer is in!</div>
-                <p style={{ color: '#8b5cf6', fontSize: '0.9rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '5px' }}>
-                  Waiting for {opponentName || 'partner'} to finish...
-                  <Heart size={14} color="#7c3aed" fill="#7c3aed" style={{ animation: 'pulse-gentle 1s infinite' }} />
-                </p>
-              </div>
+        {/* Ended Phase */}
+        {state.phase === 'ended' && (
+          <div style={{ textAlign: 'center', padding: '2rem 1rem' }}>
+            <div style={{ fontSize: '4rem', marginBottom: '0.5rem' }}>✍️💖</div>
+            <h2 className="heading-lg" style={{ color: '#ec4899', marginBottom: '0.5rem' }}>
+              All Sentences Complete!
+            </h2>
+            <p style={{ color: '#6b7280', marginBottom: '1.5rem', fontSize: '1rem' }}>
+              Hope you enjoyed reading each other's custom endings!
+            </p>
+            {role === 'host' && (
+              <button onClick={reset} className="btn-cute btn-cute-primary" style={{ padding: '0.7rem 1.8rem', background: '#ec4899', borderColor: '#ec4899' }}>
+                <RefreshCw size={18} /> Play Again
+              </button>
             )}
           </div>
         )}
 
-        {state.phase === 'reading' && (
-          <div style={{ animation: 'pop-in 0.4s ease' }}>
-            <h3 className="font-cute" style={{ fontSize: '1.3rem', color: '#4c1d95', textAlign: 'center', marginBottom: '1.2rem' }}>Read Each Other's Answers! 📖</h3>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', marginBottom: '1.5rem' }}>
-              {[
-                { label: '🫵 Your Completion', text: myHalf, bg: '#f5f3ff', border: '#ddd6fe', color: '#4c1d95' },
-                { label: `💜 ${opponentName || 'Partner'}'s Completion`, text: theirHalf, bg: '#fdf2f8', border: '#fbcfe8', color: '#4c1d95' },
-              ].map(({ label, text, bg, border, color }) => (
-                <div key={label} style={{ background: bg, border: `2px solid ${border}`, borderRadius: '18px', padding: '1.2rem' }}>
-                  <div style={{ fontSize: '0.8rem', fontWeight: 700, color: '#7c3aed', marginBottom: '0.5rem' }}>{label}</div>
-                  <div style={{ fontSize: '1rem', color, fontStyle: 'italic', lineHeight: 1.5 }}>
-                    "{prompt} <strong>{text}</strong>"
+        {/* Writing or Reading Phase */}
+        {state.phase !== 'ended' && (
+          <div>
+            {/* Prompt Box */}
+            <div style={{
+              background: '#ffffff',
+              border: '2px solid #ec4899',
+              borderRadius: '20px',
+              padding: '1.4rem 1.2rem',
+              textAlign: 'center',
+              marginBottom: '1.5rem',
+              boxShadow: '0 4px 14px rgba(236,72,153,0.08)'
+            }}>
+              <span style={{ fontSize: '0.8rem', color: '#ec4899', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', display: 'block', marginBottom: '0.4rem' }}>
+                PROMPT STARTER
+              </span>
+              <p style={{ fontSize: '1.25rem', color: '#1e1b4b', fontWeight: 700, margin: 0, fontFamily: 'var(--font-cute)' }}>
+                "{prompt} ..."
+              </p>
+            </div>
+
+            {/* Writing Input */}
+            {state.phase === 'writing' && (
+              <div style={{ marginBottom: '1.2rem' }}>
+                {myHalf ? (
+                  <div style={{
+                    textAlign: 'center',
+                    padding: '1.2rem',
+                    background: '#f3e8ff',
+                    border: '1.5px solid #c084fc',
+                    borderRadius: '16px',
+                    color: '#6d28d9',
+                    fontWeight: 600
+                  }}>
+                    ✅ Locked in! Waiting for {opponentName || 'partner'} to submit their sentence... ⏳
+                  </div>
+                ) : (
+                  <div>
+                    <textarea
+                      className="input-cute"
+                      placeholder="Finish the sentence here..."
+                      value={draft}
+                      onChange={e => setDraft(e.target.value)}
+                      rows={3}
+                      style={{ borderRadius: '16px', resize: 'none', marginBottom: '0.8rem', fontSize: '1rem' }}
+                    />
+                    <button
+                      onClick={submit}
+                      disabled={!draft.trim()}
+                      className="btn-cute btn-cute-primary"
+                      style={{ width: '100%', padding: '0.8rem', justifyContent: 'center', background: '#ec4899', borderColor: '#ec4899' }}
+                    >
+                      <Send size={16} /> Submit Ending
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Reading Phase */}
+            {state.phase === 'reading' && (
+              <div style={{ marginBottom: '1.5rem' }}>
+                <div style={{ display: 'grid', gap: '1rem', marginBottom: '1.5rem' }}>
+                  {/* Host Ending */}
+                  <div style={{ background: '#ffffff', border: '1.5px solid #7c3aed', borderRadius: '16px', padding: '1rem 1.2rem' }}>
+                    <div style={{ fontSize: '0.8rem', color: '#7c3aed', fontWeight: 700, marginBottom: '0.3rem' }}>👑 Host's Ending:</div>
+                    <div style={{ fontSize: '1.05rem', color: '#1e1b4b', fontFamily: 'var(--font-cute)' }}>
+                      "{prompt} <strong style={{ color: '#7c3aed' }}>{state.hostHalf}</strong>"
+                    </div>
+                  </div>
+
+                  {/* Guest Ending */}
+                  <div style={{ background: '#ffffff', border: '1.5px solid #ec4899', borderRadius: '16px', padding: '1rem 1.2rem' }}>
+                    <div style={{ fontSize: '0.8rem', color: '#ec4899', fontWeight: 700, marginBottom: '0.3rem' }}>🌸 Guest's Ending:</div>
+                    <div style={{ fontSize: '1.05rem', color: '#1e1b4b', fontFamily: 'var(--font-cute)' }}>
+                      "{prompt} <strong style={{ color: '#ec4899' }}>{state.guestHalf}</strong>"
+                    </div>
                   </div>
                 </div>
-              ))}
-            </div>
-            {role === 'host' ? (
-              <button onClick={next} className="btn-cute btn-cute-primary" style={{ width: '100%', justifyContent: 'center', background: 'linear-gradient(135deg,#7c3aed,#8b5cf6)' }}>
-                {state.round >= ROUNDS ? 'Finish Game 🏁' : 'Next Prompt ➡️'}
-              </button>
-            ) : <p style={{ textAlign: 'center', color: '#8b5cf6', fontSize: '0.9rem' }}>Waiting for host to continue...</p>}
-          </div>
-        )}
 
-        {state.phase === 'ended' && (
-          <div style={{ textAlign: 'center', padding: '2rem 0', animation: 'pop-in 0.4s ease' }}>
-            <Award size={60} color="#7c3aed" style={{ margin: '0 auto 1rem', animation: 'float 3s ease infinite' }} />
-            <h2 className="font-cute" style={{ fontSize: '2rem', color: '#4c1d95', marginBottom: '1rem' }}>All Sentences Finished! ✍️</h2>
-            <p style={{ color: '#6b7280', marginBottom: '2rem' }}>You've just learned {ROUNDS} new things about each other! 💜</p>
-            <div style={{ display: 'flex', gap: '1rem', justifyContent: 'center' }}>
-              <button onClick={reset} className="btn-cute btn-cute-primary" style={{ background: 'linear-gradient(135deg,#7c3aed,#8b5cf6)' }}>Play Again</button>
-              <button onClick={() => selectGame(null)} className="btn-cute btn-cute-secondary">Back to Lobby</button>
-            </div>
+                <div style={{ textAlign: 'center' }}>
+                  {role === 'host' && (
+                    <button onClick={next} className="btn-cute btn-cute-primary" style={{ padding: '0.65rem 1.6rem', background: '#ec4899', borderColor: '#ec4899' }}>
+                      Next Sentence ➔
+                    </button>
+                  )}
+                  {role === 'guest' && (
+                    <div style={{ color: '#6b7280', fontSize: '0.85rem' }}>Waiting for host to continue...</div>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>

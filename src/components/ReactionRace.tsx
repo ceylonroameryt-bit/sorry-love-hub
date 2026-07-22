@@ -1,6 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import { useGamePeer } from '../utils/peerConnection';
-import { ArrowLeft, RefreshCw } from 'lucide-react';
+import { RefreshCw, Zap } from 'lucide-react';
+import { GameHeader } from './GameHeader';
 
 interface RaceState {
   phase: 'idle' | 'waiting' | 'active' | 'result';
@@ -25,10 +26,17 @@ const INITIAL: RaceState = {
 const MAX_ROUNDS = 5;
 
 export const ReactionRace: React.FC = () => {
-  const { role, sendGameAction, gameState, selectGame, opponentName } = useGamePeer();
+  const { role, sendGameAction, gameState, opponentName } = useGamePeer();
+
+  // Host auto-initialization
+  useEffect(() => {
+    if (role === 'host' && (!gameState || gameState.phase === undefined)) {
+      sendGameAction(INITIAL);
+    }
+  }, [role, gameState, sendGameAction]);
+
   const state: RaceState = gameState ?? INITIAL;
 
-  // Use a ref so timeout closure always reads fresh state
   const stateRef = useRef(state);
   useEffect(() => { stateRef.current = state; }, [state]);
 
@@ -61,193 +69,142 @@ export const ReactionRace: React.FC = () => {
     }, randomDelay);
   };
 
-  useEffect(() => {
-    return () => { if (triggerTimeoutRef.current) clearTimeout(triggerTimeoutRef.current); };
-  }, []);
-
-  const handleClick = () => {
+  const handleTap = () => {
     const s = stateRef.current;
-
     if (s.phase === 'waiting') {
-      // Early tap — penalty
-      const nextState = { ...s };
-      if (role === 'host') nextState.hostClickTime = 99999;
-      else nextState.guestClickTime = 99999;
-
-      if (nextState.hostClickTime !== null && nextState.guestClickTime !== null) {
-        resolveRound(nextState);
-      } else {
-        sendGameAction(nextState);
-      }
+      // False start penalty
+      const isHost = role === 'host';
+      sendGameAction({
+        ...s,
+        phase: 'result',
+        hostClickTime: isHost ? 9999 : s.hostClickTime,
+        guestClickTime: !isHost ? 9999 : s.guestClickTime,
+        hostScore: !isHost ? s.hostScore + 1 : s.hostScore,
+        guestScore: isHost ? s.guestScore + 1 : s.guestScore,
+      });
       return;
     }
 
     if (s.phase !== 'active') return;
 
-    const diff = Date.now() - s.triggerTime;
-    const nextState = { ...s };
-    if (role === 'host') nextState.hostClickTime = diff;
-    else nextState.guestClickTime = diff;
+    const reaction = Date.now() - s.triggerTime;
+    const isHost = role === 'host';
+    const newHostClick = isHost ? reaction : s.hostClickTime;
+    const newGuestClick = !isHost ? reaction : s.guestClickTime;
 
-    if (nextState.hostClickTime !== null && nextState.guestClickTime !== null) {
-      resolveRound(nextState);
-    } else {
-      sendGameAction(nextState);
+    let nextHostScore = s.hostScore;
+    let nextGuestScore = s.guestScore;
+    let newPhase: RaceState['phase'] = 'active';
+
+    if (newHostClick !== null && newGuestClick !== null) {
+      newPhase = 'result';
+      if (newHostClick < newGuestClick) nextHostScore += 1;
+      else if (newGuestClick < newHostClick) nextGuestScore += 1;
     }
+
+    sendGameAction({
+      ...s,
+      phase: newPhase,
+      hostClickTime: newHostClick,
+      guestClickTime: newGuestClick,
+      hostScore: nextHostScore,
+      guestScore: nextGuestScore,
+    });
   };
 
-  const resolveRound = (curr: RaceState) => {
-    const next = { ...curr, phase: 'result' as const };
-    const h = next.hostClickTime ?? 99999;
-    const g = next.guestClickTime ?? 99999;
-
-    if (h !== 99999 || g !== 99999) {
-      if (h < g) next.hostScore += 1;
-      else if (g < h) next.guestScore += 1;
-    }
-    sendGameAction(next);
-  };
-
-  const resetGame = () => { sendGameAction({ ...INITIAL }); };
-
-  const myScore = role === 'host' ? state.hostScore : state.guestScore;
-  const theirScore = role === 'host' ? state.guestScore : state.hostScore;
-  const myTime = role === 'host' ? state.hostClickTime : state.guestClickTime;
-  const theirTime = role === 'host' ? state.guestClickTime : state.hostClickTime;
-  const gameOver = state.hostScore >= MAX_ROUNDS || state.guestScore >= MAX_ROUNDS;
-  const iWon = (role === 'host' && state.hostScore > state.guestScore) || (role === 'guest' && state.guestScore > state.hostScore);
-
-  const bgColor = state.phase === 'active' ? '#dcfce7'
-    : state.phase === 'waiting' ? '#fef9c3'
-    : '#faf5ff';
-
-  const formatMs = (ms: number | null) => ms === null ? '—' : ms === 99999 ? '⚡ Early tap!' : `${ms}ms`;
+  const resetAll = () => sendGameAction(INITIAL);
 
   return (
-    <div className="container-cute" style={{ maxWidth: '640px' }}>
-      <div className="card-cute" style={{ background: bgColor, border: '1.5px solid #ddd6fe', transition: 'background 0.3s' }}>
-        {/* Header */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
-          <button onClick={() => selectGame(null)} className="btn-cute btn-cute-secondary" style={{ padding: '0.4rem 0.9rem', fontSize: '0.85rem' }}>
-            <ArrowLeft size={15} /> Back
-          </button>
-          <span className="badge-cute">Reaction Race ⚡</span>
-          <button onClick={resetGame} className="btn-cute btn-cute-secondary" style={{ padding: '0.4rem 0.9rem', fontSize: '0.85rem' }}>
-            <RefreshCw size={14} />
-          </button>
-        </div>
+    <div className="game-container-responsive">
+      <GameHeader
+        title="Reaction Race"
+        emoji="⚡"
+        instructions={[
+          "Host starts the round. Wait patiently while the box says 'WAIT...'",
+          "As soon as the box turns GREEN 🟩, TAP AS FAST AS YOU CAN!",
+          "Tapping before the green light gives a false start penalty!",
+          "Fastest reaction time (ms) wins the round point!"
+        ]}
+      />
 
-        {/* Scoreboard */}
-        <div style={{ display: 'flex', justifyContent: 'space-around', alignItems: 'center', background: 'rgba(255,255,255,0.7)', borderRadius: '14px', padding: '0.8rem 1rem', border: '1px solid #ede9fe', marginBottom: '1.5rem' }}>
-          <div style={{ textAlign: 'center' }}>
-            <div style={{ fontSize: '0.75rem', color: '#6b7280' }}>You</div>
-            <div className="font-cute" style={{ fontSize: '2rem', color: '#7c3aed' }}>{myScore}</div>
-          </div>
-          <div style={{ textAlign: 'center' }}>
-            <div style={{ fontSize: '0.7rem', color: '#9ca3af' }}>First to {MAX_ROUNDS} wins!</div>
-            <div style={{ fontSize: '0.8rem', color: '#6b7280' }}>Round {state.round}</div>
-          </div>
-          <div style={{ textAlign: 'center' }}>
-            <div style={{ fontSize: '0.75rem', color: '#6b7280' }}>{opponentName || 'Partner'}</div>
-            <div className="font-cute" style={{ fontSize: '2rem', color: '#8b5cf6' }}>{theirScore}</div>
+      <div className="card-cute" style={{ background: '#faf5ff', border: '1.5px solid #ddd6fe' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.2rem', flexWrap: 'wrap', gap: '0.4rem' }}>
+          <span className="badge-cute" style={{ background: '#ede9fe', color: '#6d28d9' }}>
+            Round {state.round} of {MAX_ROUNDS}
+          </span>
+          <div style={{ display: 'flex', gap: '1rem', fontFamily: 'var(--font-world)', fontSize: '0.95rem' }}>
+            <span style={{ color: '#7c3aed' }}>Host: {state.hostScore}</span>
+            <span style={{ color: '#ec4899' }}>Guest: {state.guestScore}</span>
           </div>
         </div>
 
-        {/* IDLE / game over */}
-        {(state.phase === 'idle' || gameOver) && (
-          <div style={{ textAlign: 'center', padding: '2rem 0' }}>
-            {gameOver ? (
-              <>
-                <div style={{ fontSize: '4rem', marginBottom: '1rem' }}>{iWon ? '🏆' : '🥈'}</div>
-                <h2 className="font-cute" style={{ fontSize: '2rem', color: '#4c1d95', marginBottom: '0.5rem' }}>
-                  {iWon ? 'You Won! 🎉' : `${opponentName || 'Partner'} Won! 👑`}
-                </h2>
-                <p style={{ color: '#6b7280', marginBottom: '2rem' }}>Final Score: {myScore} – {theirScore}</p>
-                <div style={{ display: 'flex', gap: '1rem', justifyContent: 'center' }}>
-                  <button onClick={resetGame} className="btn-cute btn-cute-primary" style={{ background: 'linear-gradient(135deg,#7c3aed,#8b5cf6)' }}>Play Again</button>
-                  <button onClick={() => selectGame(null)} className="btn-cute btn-cute-secondary">Back to Lobby</button>
-                </div>
-              </>
-            ) : (
-              <>
-                <div style={{ fontSize: '4rem', marginBottom: '1rem', animation: 'float 2s ease infinite' }}>⚡</div>
-                <h2 className="font-cute" style={{ fontSize: '1.8rem', color: '#4c1d95', marginBottom: '1rem' }}>Reaction Race!</h2>
-                <p style={{ color: '#6b7280', marginBottom: '2rem', fontSize: '0.95rem' }}>
-                  Wait for the GREEN screen, then tap as fast as you can!<br />
-                  <strong style={{ color: '#dc2626' }}>Tapping early = penalty! ⚠️</strong>
-                </p>
-                {role === 'host' ? (
-                  <button onClick={startRound} className="btn-cute btn-cute-primary" style={{ background: 'linear-gradient(135deg,#059669,#10b981)', padding: '1rem 2.5rem', fontSize: '1.1rem' }}>
-                    Start Round 1! 🚀
-                  </button>
-                ) : (
-                  <p style={{ color: '#8b5cf6' }}>Waiting for host to start...</p>
-                )}
-              </>
-            )}
-          </div>
-        )}
-
-        {/* WAITING — yellow, watch out */}
-        {state.phase === 'waiting' && !gameOver && (
-          <div style={{ textAlign: 'center', padding: '2rem 0', cursor: 'pointer' }} onClick={handleClick}>
-            <div style={{ fontSize: '3rem', marginBottom: '1rem', animation: 'pulse-gentle 1s infinite' }}>👀</div>
-            <h2 className="font-cute" style={{ fontSize: '2rem', color: '#854d0e', marginBottom: '0.5rem' }}>Get Ready...</h2>
-            <p style={{ color: '#a16207', fontSize: '0.95rem' }}>Don't tap yet! Wait for GREEN.</p>
-            <p style={{ color: '#6b7280', fontSize: '0.8rem', marginTop: '1rem' }}>Tap the screen to react when it turns green!</p>
-          </div>
-        )}
-
-        {/* ACTIVE — green, tap now! */}
-        {state.phase === 'active' && !gameOver && (
-          <div style={{ textAlign: 'center', padding: '2rem 0', cursor: 'pointer' }} onClick={handleClick}>
-            <div style={{ fontSize: '3rem', marginBottom: '1rem', animation: 'pop-in 0.1s ease' }}>🟢</div>
-            <h2 className="font-cute" style={{ fontSize: '2.5rem', color: '#14532d', marginBottom: '1rem', animation: 'wiggle 0.3s ease' }}>
-              TAP NOW! ⚡
-            </h2>
-            {myTime !== null ? (
-              <p style={{ color: '#059669', fontSize: '1rem', fontWeight: 700 }}>✅ You tapped! ({myTime}ms)</p>
-            ) : (
-              <button onClick={handleClick} className="btn-cute btn-cute-primary"
-                style={{ background: 'linear-gradient(135deg,#059669,#10b981)', padding: '1.5rem 3rem', fontSize: '1.3rem', animation: 'pulse-gentle 0.5s infinite' }}>
-                TAP! ⚡
-              </button>
-            )}
-          </div>
-        )}
-
-        {/* RESULT */}
-        {state.phase === 'result' && !gameOver && (
-          <div style={{ textAlign: 'center', padding: '1.5rem 0', animation: 'pop-in 0.4s ease' }}>
-            <h3 className="font-cute" style={{ color: '#4c1d95', fontSize: '1.6rem', marginBottom: '1.2rem' }}>
-              Round {state.round} Results!
-            </h3>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1.5rem', maxWidth: '400px', margin: '0 auto 1.5rem' }}>
-              {[
-                { label: 'You', time: myTime, color: '#7c3aed' },
-                { label: opponentName || 'Partner', time: theirTime, color: '#8b5cf6' },
-              ].map(({ label, time, color }) => (
-                <div key={label} style={{ background: '#fff', border: `2px solid ${color}30`, borderRadius: '18px', padding: '1rem' }}>
-                  <div style={{ fontSize: '0.8rem', color: '#6b7280', fontWeight: 700 }}>{label}</div>
-                  <div className="font-cute" style={{ fontSize: '1.3rem', color, marginTop: '0.3rem' }}>{formatMs(time)}</div>
-                  {time !== null && time !== 99999 && myTime !== null && theirTime !== null && myTime !== 99999 && theirTime !== 99999 && (
-                    <div style={{ marginTop: '0.3rem', fontSize: '1.2rem' }}>
-                      {((label === 'You' && myTime < theirTime) || (label !== 'You' && theirTime < myTime)) ? '🏆' : '🥈'}
-                    </div>
-                  )}
-                </div>
-              ))}
+        {/* Reaction Box */}
+        <div
+          onClick={handleTap}
+          style={{
+            height: '240px',
+            borderRadius: '20px',
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            cursor: 'pointer',
+            background: state.phase === 'active' ? '#22c55e' : state.phase === 'waiting' ? '#ef4444' : '#ffffff',
+            border: '2.5px solid #ddd6fe',
+            color: state.phase === 'active' || state.phase === 'waiting' ? '#ffffff' : '#1e1b4b',
+            transition: 'background 0.15s ease',
+            marginBottom: '1.5rem',
+            userSelect: 'none'
+          }}
+        >
+          {state.phase === 'idle' && (
+            <div style={{ textAlign: 'center' }}>
+              <Zap size={40} color="#7c3aed" style={{ marginBottom: '0.5rem' }} />
+              <div style={{ fontSize: '1.2rem', fontWeight: 700, fontFamily: 'var(--font-world)' }}>
+                {role === 'host' ? 'Tap Below to Start Round!' : `Waiting for ${opponentName || 'host'}...`}
+              </div>
             </div>
+          )}
 
-            {role === 'host' ? (
-              <button onClick={startRound} className="btn-cute btn-cute-primary" style={{ background: 'linear-gradient(135deg,#7c3aed,#8b5cf6)', padding: '0.8rem 2rem' }}>
-                Next Round ➡️
-              </button>
-            ) : (
-              <p style={{ color: '#8b5cf6', fontSize: '0.9rem' }}>Waiting for host to start next round...</p>
-            )}
-          </div>
-        )}
+          {state.phase === 'waiting' && (
+            <div style={{ textAlign: 'center' }}>
+              <div style={{ fontSize: '2.5rem', fontWeight: 900, fontFamily: 'var(--font-world)' }}>WAIT FOR GREEN...</div>
+              <div style={{ fontSize: '0.85rem', opacity: 0.8 }}>Don't tap yet!</div>
+            </div>
+          )}
+
+          {state.phase === 'active' && (
+            <div style={{ textAlign: 'center' }}>
+              <div style={{ fontSize: '3rem', fontWeight: 900, fontFamily: 'var(--font-world)' }}>TAP NOW! ⚡</div>
+            </div>
+          )}
+
+          {state.phase === 'result' && (
+            <div style={{ textAlign: 'center', color: '#1e1b4b' }}>
+              <div style={{ fontSize: '1.2rem', fontWeight: 700, fontFamily: 'var(--font-world)', marginBottom: '0.5rem' }}>
+                Round Result:
+              </div>
+              <div style={{ fontSize: '0.9rem', color: '#6b7280' }}>
+                👑 Host: <strong>{state.hostClickTime === 9999 ? 'False Start ❌' : `${state.hostClickTime}ms`}</strong> | 🌸 Guest: <strong>{state.guestClickTime === 9999 ? 'False Start ❌' : `${state.guestClickTime}ms`}</strong>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Action Controls */}
+        <div style={{ textAlign: 'center' }}>
+          {role === 'host' && (state.phase === 'idle' || state.phase === 'result') && (
+            <button onClick={startRound} className="btn-cute btn-cute-primary" style={{ padding: '0.7rem 1.8rem', background: '#059669', borderColor: '#059669' }}>
+              <Zap size={18} /> {state.phase === 'idle' ? 'Start Round' : 'Next Round'}
+            </button>
+          )}
+
+          {role === 'host' && state.phase === 'result' && (
+            <button onClick={resetAll} className="btn-cute btn-cute-secondary" style={{ marginLeft: '0.8rem', padding: '0.7rem 1rem' }}>
+              <RefreshCw size={16} /> Reset Scores
+            </button>
+          )}
+        </div>
       </div>
     </div>
   );

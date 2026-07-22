@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useGamePeer } from '../utils/peerConnection';
-import { ArrowLeft, RefreshCw, Volume2 } from 'lucide-react';
+import { RefreshCw } from 'lucide-react';
+import { GameHeader } from './GameHeader';
 
 interface SimonState {
-  sequence: number[]; // sequence of pad indices (0-3)
+  sequence: number[];
   turn: 'host' | 'guest';
   phase: 'watching' | 'playing' | 'adding' | 'ended';
   currentStreak: number;
@@ -23,14 +24,14 @@ const INITIAL: SimonState = {
 };
 
 const PADS = [
-  { id: 0, color: '#f87171', activeColor: '#fca5a5', name: 'Red 🔴' },
-  { id: 1, color: '#60a5fa', activeColor: '#93c5fd', name: 'Blue 🔵' },
-  { id: 2, color: '#34d399', activeColor: '#6ee7b7', name: 'Green 🟢' },
-  { id: 3, color: '#fbbf24', activeColor: '#fde047', name: 'Yellow 🟡' },
+  { id: 0, color: '#ef4444', activeColor: '#fca5a5', name: 'Red 🔴' },
+  { id: 1, color: '#3b82f6', activeColor: '#93c5fd', name: 'Blue 🔵' },
+  { id: 2, color: '#10b981', activeColor: '#6ee7b7', name: 'Green 🟢' },
+  { id: 3, color: '#f59e0b', activeColor: '#fde047', name: 'Yellow 🟡' },
 ];
 
 export const SimonSaysOnline: React.FC = () => {
-  const { role, sendGameAction, gameState, selectGame, opponentName, playerName } = useGamePeer();
+  const { role, sendGameAction, gameState, opponentName } = useGamePeer();
   const state: SimonState = gameState ?? INITIAL;
   const stateRef = useRef(state);
 
@@ -39,222 +40,179 @@ export const SimonSaysOnline: React.FC = () => {
   }, [state]);
 
   const [activePad, setActivePad] = useState<number | null>(null);
-  const [isPlayingSeq, setIsPlayingSeq] = useState(false);
   const [localInputIdx, setLocalInputIdx] = useState(0);
 
   const isMyTurn = state.turn === role && state.phase !== 'ended';
 
-  // Start game by initializing the sequence
+  // Host initializes initial sequence
   useEffect(() => {
-    if (role === 'host' && state.sequence.length === 0 && state.phase === 'watching') {
+    if (role === 'host' && (state.sequence.length === 0 || !state.sequence)) {
       const firstPad = Math.floor(Math.random() * 4);
       sendGameAction({
         ...INITIAL,
         sequence: [firstPad],
-      });
-    }
-  }, [role, state.sequence.length, state.phase, sendGameAction]);
-
-  // Watch for sequence changes to play them
-  useEffect(() => {
-    if (state.sequence.length > 0 && state.phase === 'watching') {
-      playSequence();
-    }
-  }, [state.sequence, state.phase]);
-
-  const playSequence = async () => {
-    setIsPlayingSeq(true);
-    // Give a short delay before start
-    await sleep(600);
-
-    for (let i = 0; i < state.sequence.length; i++) {
-      const padId = state.sequence[i];
-      setActivePad(padId);
-      await sleep(400);
-      setActivePad(null);
-      await sleep(200);
-    }
-
-    setIsPlayingSeq(false);
-    
-    // Once finished playing:
-    // If it's my turn, transition local state to let me play
-    if (isMyTurn) {
-      setLocalInputIdx(0);
-      sendGameAction({
-        ...state,
-        phase: 'playing',
-      });
-    }
-  };
-
-  const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
-
-  const handlePadClick = (padId: number) => {
-    if (!isMyTurn || isPlayingSeq) return;
-
-    // Flash clicked pad
-    setActivePad(padId);
-    setTimeout(() => setActivePad(null), 200);
-
-    if (state.phase === 'playing') {
-      // Check input correctness
-      const expected = state.sequence[localInputIdx];
-      if (padId === expected) {
-        const nextInputIdx = localInputIdx + 1;
-        if (nextInputIdx >= state.sequence.length) {
-          // Finished sequence! Transition to adding phase
-          sendGameAction({
-            ...state,
-            phase: 'adding',
-            currentStreak: state.sequence.length,
-          });
-        } else {
-          setLocalInputIdx(nextInputIdx);
-        }
-      } else {
-        // Failed!
-        let nextHostScore = state.hostScore;
-        let nextGuestScore = state.guestScore;
-
-        if (role === 'host') nextGuestScore++;
-        else nextHostScore++;
-
-        sendGameAction({
-          ...state,
-          phase: 'ended',
-          loser: role!,
-          hostScore: nextHostScore,
-          guestScore: nextGuestScore,
-        });
-      }
-    } else if (state.phase === 'adding') {
-      // Pad clicked becomes the new addition to sequence
-      const nextSequence = [...state.sequence, padId];
-      const nextTurn = state.turn === 'host' ? 'guest' : 'host';
-
-      sendGameAction({
-        ...state,
-        sequence: nextSequence,
-        turn: nextTurn,
         phase: 'watching',
       });
     }
-  };
+  }, [role, state.sequence, sendGameAction]);
 
-  const restartGame = () => {
-    if (role === 'host') {
-      const firstPad = Math.floor(Math.random() * 4);
+  // Flash sequence animation
+  useEffect(() => {
+    if (state.sequence.length > 0 && state.phase === 'watching') {
+      let idx = 0;
+      setLocalInputIdx(0);
+
+      const interval = setInterval(() => {
+        if (idx < state.sequence.length) {
+          const pad = state.sequence[idx];
+          setActivePad(pad);
+          setTimeout(() => setActivePad(null), 400);
+          idx++;
+        } else {
+          clearInterval(interval);
+          if (role === 'host') {
+            sendGameAction({
+              ...stateRef.current,
+              phase: 'playing',
+            });
+          }
+        }
+      }, 700);
+
+      return () => clearInterval(interval);
+    }
+  }, [state.sequence, state.phase, role, sendGameAction]);
+
+  const handlePadClick = (padId: number) => {
+    if (!isMyTurn || state.phase !== 'playing') return;
+
+    setActivePad(padId);
+    setTimeout(() => setActivePad(null), 250);
+
+    const expected = state.sequence[localInputIdx];
+
+    if (padId !== expected) {
+      // Failed sequence
+      const nextHostScore = role === 'guest' ? state.hostScore + 1 : state.hostScore;
+      const nextGuestScore = role === 'host' ? state.guestScore + 1 : state.guestScore;
+
       sendGameAction({
-        ...INITIAL,
-        sequence: [firstPad],
-        hostScore: state.hostScore,
-        guestScore: state.guestScore,
-        turn: stateRef.current.loser === 'host' ? 'guest' : 'host',
+        ...state,
+        phase: 'ended',
+        loser: role,
+        hostScore: nextHostScore,
+        guestScore: nextGuestScore,
+      });
+      return;
+    }
+
+    const nextLocalIdx = localInputIdx + 1;
+    if (nextLocalIdx >= state.sequence.length) {
+      // Completed current pattern, go to adding phase
+      sendGameAction({
+        ...state,
+        phase: 'adding',
+        currentStreak: state.sequence.length,
       });
     } else {
-      sendGameAction({
-        ...INITIAL,
-        hostScore: state.hostScore,
-        guestScore: state.guestScore,
-      });
+      setLocalInputIdx(nextLocalIdx);
     }
   };
 
+  const handleAddPad = (padId: number) => {
+    if (!isMyTurn || state.phase !== 'adding') return;
+
+    const nextSequence = [...state.sequence, padId];
+    const nextTurn = role === 'host' ? 'guest' : 'host';
+
+    sendGameAction({
+      ...state,
+      sequence: nextSequence,
+      turn: nextTurn,
+      phase: 'watching',
+    });
+  };
+
+  const resetGame = () => {
+    const firstPad = Math.floor(Math.random() * 4);
+    sendGameAction({
+      ...INITIAL,
+      sequence: [firstPad],
+      phase: 'watching',
+      hostScore: state.hostScore,
+      guestScore: state.guestScore,
+    });
+  };
+
   return (
-    <div className="container-cute" style={{ maxWidth: '600px' }}>
-      <div className="card-cute" style={{ background: '#f5fafb', border: '1.5px solid #bae6fd' }}>
-        {/* Header */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
-          <button onClick={() => selectGame(null)} className="btn-cute btn-cute-secondary" style={{ padding: '0.4rem 0.9rem', fontSize: '0.85rem' }}>
-            <ArrowLeft size={15} /> Back
-          </button>
-          <span className="badge-cute">Simon Says Duel 🔴🔵</span>
-        </div>
+    <div className="game-container-responsive">
+      <GameHeader
+        title="Simon Says"
+        emoji="🔴🔵"
+        instructions={[
+          "Watch the flashing pattern sequence carefully.",
+          "Repeat the pattern by tapping the colored pads in exact order.",
+          "Add a new pad to the end of the sequence for your partner!",
+          "First player to make a mistake loses the round!"
+        ]}
+      />
 
-        {/* Scores */}
-        <div style={{
-          display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px',
-          background: '#e0f2fe', padding: '0.8rem', borderRadius: '15px',
-          textAlign: 'center', marginBottom: '1.5rem', border: '2px solid #1e1b4b'
-        }}>
-          <div>
-            <div style={{ fontSize: '0.8rem', color: '#0369a1' }}>{playerName} Score</div>
-            <div style={{ fontSize: '1.6rem', fontWeight: 800, color: '#1e1b4b' }}>
-              {role === 'host' ? state.hostScore : state.guestScore}
-            </div>
-          </div>
-          <div>
-            <div style={{ fontSize: '0.8rem', color: '#0369a1' }}>{opponentName || 'Partner'} Score</div>
-            <div style={{ fontSize: '1.6rem', fontWeight: 800, color: '#1e1b4b' }}>
-              {role === 'host' ? state.guestScore : state.hostScore}
-            </div>
+      <div className="card-cute" style={{ background: '#faf5ff', border: '1.5px solid #ddd6fe' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.2rem', flexWrap: 'wrap', gap: '0.4rem' }}>
+          <span className="badge-cute" style={{ background: isMyTurn ? '#dcfce7' : '#ede9fe', color: isMyTurn ? '#15803d' : '#6d28d9' }}>
+            {state.phase === 'watching' ? '👀 WATCH PATTERN' : state.phase === 'adding' ? '➕ ADD NEW PAD' : isMyTurn ? '✨ YOUR TURN' : `⏳ ${opponentName || 'Partner'}'s Turn`}
+          </span>
+          <div style={{ display: 'flex', gap: '1rem', fontFamily: 'var(--font-world)', fontSize: '0.95rem' }}>
+            <span style={{ color: '#7c3aed' }}>Host: {state.hostScore}</span>
+            <span style={{ color: '#ec4899' }}>Guest: {state.guestScore}</span>
           </div>
         </div>
 
-        {/* Status Area */}
-        <div style={{ textAlign: 'center', marginBottom: '1.5rem', height: '2.5rem', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          {state.phase === 'ended' ? (
-            <span className="font-cute" style={{ color: '#db2777', fontSize: '1.2rem' }}>
-              {state.loser === role ? '❌ You failed! Rematch?' : `🎉 Partner failed! Score: ${state.currentStreak}`}
-            </span>
-          ) : isPlayingSeq ? (
-            <span className="font-cute" style={{ color: '#0284c7', fontSize: '1.1rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <Volume2 size={18} className="animate-bounce" /> Pay attention to the pattern! 📺
-            </span>
-          ) : state.phase === 'adding' ? (
-            <span className="font-cute animate-pulse" style={{ color: '#059669', fontSize: '1.15rem', fontWeight: 'bold' }}>
-              ✨ Success! Tap any pad to add a color!
-            </span>
-          ) : isMyTurn ? (
-            <span className="font-cute" style={{ color: '#0369a1', fontSize: '1.1rem' }}>
-              Repeat pattern: <strong style={{ color: '#0284c7' }}>{localInputIdx}/{state.sequence.length}</strong>
-            </span>
-          ) : (
-            <span className="font-cute" style={{ color: '#9ca3af', fontSize: '1rem' }}>
-              {opponentName || 'Partner'} is playing... ⏳
-            </span>
-          )}
-        </div>
-
-        {/* 2x2 Simon Pads */}
-        <div style={{
-          display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px',
-          maxWidth: '300px', margin: '0 auto 1.5rem'
-        }}>
+        {/* 2x2 Pad Grid */}
+        <div className="game-board-responsive" style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '0.8rem', marginBottom: '1.5rem' }}>
           {PADS.map(pad => {
             const isActive = activePad === pad.id;
-            const disabled = isPlayingSeq || !isMyTurn;
-
             return (
               <button
                 key={pad.id}
-                disabled={disabled}
-                onClick={() => handlePadClick(pad.id)}
+                onClick={() => (state.phase === 'adding' ? handleAddPad(pad.id) : handlePadClick(pad.id))}
+                disabled={!isMyTurn || state.phase === 'watching'}
                 style={{
-                  aspectRatio: '1', borderRadius: '20px',
-                  backgroundColor: isActive ? pad.activeColor : pad.color,
-                  border: '4px solid #1e1b4b',
-                  boxShadow: isActive ? 'none' : '4px 4px 0px #1e1b4b',
-                  cursor: disabled ? 'default' : 'pointer',
+                  background: isActive ? pad.activeColor : pad.color,
+                  border: '3px solid #ffffff',
+                  borderRadius: '24px',
+                  aspectRatio: '1 / 1',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontSize: '1.4rem',
+                  color: '#ffffff',
+                  fontWeight: 900,
+                  cursor: isMyTurn && state.phase !== 'watching' ? 'pointer' : 'default',
                   transform: isActive ? 'scale(0.96)' : 'none',
                   transition: 'all 0.1s ease',
-                  opacity: isPlayingSeq && !isActive ? 0.6 : 1,
+                  boxShadow: isActive ? `0 0 20px ${pad.color}` : '0 4px 12px rgba(0,0,0,0.1)'
                 }}
-                title={pad.name}
-              />
+              >
+                {pad.name}
+              </button>
             );
           })}
         </div>
 
-        {/* Rematch Actions */}
-        <div style={{ display: 'flex', justifyContent: 'center' }}>
-          {state.phase === 'ended' && (
-            <button onClick={restartGame} className="btn-cute btn-cute-primary">
-              <RefreshCw size={16} /> Rematch
-            </button>
-          )}
-        </div>
+        {/* Ended Banner */}
+        {state.phase === 'ended' && (
+          <div style={{ textAlign: 'center' }}>
+            <h3 style={{ fontSize: '1.4rem', color: state.loser !== role ? '#059669' : '#dc2626', fontFamily: 'var(--font-world)', marginBottom: '0.6rem' }}>
+              {state.loser !== role ? '🎉 Pattern Champion!' : `💔 ${opponentName || 'Partner'} Won!`}
+            </h3>
+            {role === 'host' && (
+              <button onClick={resetGame} className="btn-cute btn-cute-primary" style={{ padding: '0.65rem 1.6rem' }}>
+                <RefreshCw size={16} /> Play Next Round
+              </button>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );

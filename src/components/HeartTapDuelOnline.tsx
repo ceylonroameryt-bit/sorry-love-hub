@@ -1,9 +1,10 @@
 import React, { useEffect, useRef } from 'react';
 import { useGamePeer } from '../utils/peerConnection';
-import { ArrowLeft, RefreshCw, Zap } from 'lucide-react';
+import { RefreshCw, Zap, Heart } from 'lucide-react';
+import { GameHeader } from './GameHeader';
 
 interface TapState {
-  pullPosition: number; // -40 (guest wins) to +40 (host wins)
+  pullPosition: number;
   winner: 'host' | 'guest' | null;
   phase: 'ready' | 'playing' | 'ended';
   hostScore: number;
@@ -19,7 +20,15 @@ const INITIAL: TapState = {
 };
 
 export const HeartTapDuelOnline: React.FC = () => {
-  const { role, sendGameAction, gameState, selectGame, opponentName, playerName } = useGamePeer();
+  const { role, sendGameAction, gameState, opponentName } = useGamePeer();
+
+  // Host auto-initialization
+  useEffect(() => {
+    if (role === 'host' && (!gameState || gameState.phase === undefined)) {
+      sendGameAction(INITIAL);
+    }
+  }, [role, gameState, sendGameAction]);
+
   const state: TapState = gameState ?? INITIAL;
   const stateRef = useRef(state);
 
@@ -30,10 +39,9 @@ export const HeartTapDuelOnline: React.FC = () => {
   const handleTap = () => {
     if (state.phase !== 'playing' || state.winner) return;
 
-    const pullStep = 2.5; // distance moved per tap
+    const pullStep = 2.5;
     let nextPos = state.pullPosition + (role === 'host' ? pullStep : -pullStep);
 
-    // Bound check
     let currentWinner: 'host' | 'guest' | null = null;
     let nextPhase: 'ready' | 'playing' | 'ended' = state.phase;
     let nextHostScore = state.hostScore;
@@ -61,7 +69,7 @@ export const HeartTapDuelOnline: React.FC = () => {
     });
   };
 
-  const startFight = () => {
+  const startMatch = () => {
     sendGameAction({
       ...state,
       pullPosition: 0,
@@ -70,140 +78,94 @@ export const HeartTapDuelOnline: React.FC = () => {
     });
   };
 
-  const restartGame = () => {
-    const s = stateRef.current;
-    sendGameAction({
-      ...INITIAL,
-      hostScore: s.hostScore,
-      guestScore: s.guestScore,
-      phase: 'ready',
-    });
-  };
-
-  const percentage = 50 + (state.pullPosition / 80) * 100; // convert -40..40 to 0%..100%
 
   return (
-    <div className="container-cute" style={{ maxWidth: '650px' }}>
-      <div className="card-cute" style={{ background: '#fffbeb', border: '1.5px solid #fde68a' }}>
-        {/* Header */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
-          <button onClick={() => selectGame(null)} className="btn-cute btn-cute-secondary" style={{ padding: '0.4rem 0.9rem', fontSize: '0.85rem' }}>
-            <ArrowLeft size={15} /> Back
-          </button>
-          <span className="badge-cute">Heart Tap Duel ⚡</span>
+    <div className="game-container-responsive">
+      <GameHeader
+        title="Heart Tap Tug-of-War"
+        emoji="💖⚡"
+        instructions={[
+          "Mash your tap button as fast as possible!",
+          "Each tap pulls the heart towards your side of the tug-of-war meter.",
+          "First player to pull the heart completely to their side wins!"
+        ]}
+      />
+
+      <div className="card-cute" style={{ background: '#faf5ff', border: '1.5px solid #ddd6fe' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.2rem', flexWrap: 'wrap', gap: '0.4rem' }}>
+          <span className="badge-cute" style={{ background: state.phase === 'playing' ? '#dcfce7' : '#ede9fe', color: state.phase === 'playing' ? '#15803d' : '#6d28d9' }}>
+            {state.phase === 'playing' ? '⚡ MASH NOW!' : 'Ready'}
+          </span>
+          <div style={{ display: 'flex', gap: '1rem', fontFamily: 'var(--font-world)', fontSize: '0.95rem' }}>
+            <span style={{ color: '#7c3aed' }}>Host: {state.hostScore}</span>
+            <span style={{ color: '#ec4899' }}>Guest: {state.guestScore}</span>
+          </div>
         </div>
 
-        {/* Scores */}
+        {/* Tug-of-War Bar */}
         <div style={{
-          display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px',
-          background: '#fef3c7', padding: '0.8rem', borderRadius: '15px',
-          textAlign: 'center', marginBottom: '1.5rem', border: '2px solid #1e1b4b'
+          position: 'relative',
+          height: '40px',
+          background: '#ffffff',
+          border: '2px solid #ddd6fe',
+          borderRadius: '50px',
+          overflow: 'hidden',
+          marginBottom: '1.5rem',
+          display: 'flex',
+          alignItems: 'center',
+          boxShadow: '0 4px 12px rgba(124,58,237,0.08)'
         }}>
-          <div>
-            <div style={{ fontSize: '0.8rem', color: '#d97706' }}>{playerName} Score</div>
-            <div style={{ fontSize: '1.6rem', fontWeight: 800, color: '#1e1b4b' }}>
-              {role === 'host' ? state.hostScore : state.guestScore}
-            </div>
-          </div>
-          <div>
-            <div style={{ fontSize: '0.8rem', color: '#d97706' }}>{opponentName || 'Partner'} Score</div>
-            <div style={{ fontSize: '1.6rem', fontWeight: 800, color: '#1e1b4b' }}>
-              {role === 'host' ? state.guestScore : state.hostScore}
-            </div>
-          </div>
-        </div>
-
-        {/* Status text */}
-        <div style={{ textAlign: 'center', marginBottom: '1.5rem', height: '2rem' }}>
-          {state.phase === 'ready' && (
-            <span className="font-cute" style={{ color: '#d97706', fontSize: '1.1rem' }}>
-              Get ready to mash the heart as fast as you can! 💖
-            </span>
-          )}
-          {state.phase === 'playing' && (
-            <span className="font-cute animate-pulse" style={{ color: '#dc2626', fontSize: '1.2rem', fontWeight: 'bold' }}>
-              TAP! TAP! TAP! 💥
-            </span>
-          )}
-          {state.phase === 'ended' && (
-            <span className="font-cute" style={{ color: '#7c3aed', fontSize: '1.25rem' }}>
-              {state.winner === role ? '👑 You won the tug-of-war!' : `💔 ${opponentName || 'Partner'} won!`}
-            </span>
-          )}
-        </div>
-
-        {/* Tug of war bar */}
-        <div style={{ margin: '0 auto 2rem', maxWidth: '450px' }}>
-          {/* Labels */}
-          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.82rem', fontWeight: 'bold', marginBottom: '6px', color: '#4b5563' }}>
-            <span>👈 {role === 'host' ? opponentName || 'Partner' : playerName}</span>
-            <span>{role === 'host' ? playerName : opponentName || 'Partner'} 👉</span>
-          </div>
-
-          {/* Bar background */}
           <div style={{
-            height: '24px', background: '#e5e7eb', border: '3px solid #1e1b4b',
-            borderRadius: '12px', overflow: 'hidden', position: 'relative',
-            boxShadow: '2px 2px 0px #1e1b4b'
+            position: 'absolute',
+            left: `${50 + state.pullPosition}%`,
+            transform: 'translateX(-50%)',
+            transition: 'left 0.05s ease',
+            fontSize: '1.8rem',
+            lineHeight: 1
           }}>
-            {/* Center line */}
-            <div style={{ position: 'absolute', top: 0, bottom: 0, left: '50%', width: '3px', background: '#1e1b4b', opacity: 0.3 }}></div>
-
-            {/* Pull indicator bar */}
-            <div style={{
-              position: 'absolute', top: 0, bottom: 0,
-              left: role === 'host' ? '50%' : `${percentage}%`,
-              right: role === 'host' ? `${100 - percentage}%` : '50%',
-              background: 'linear-gradient(90deg, #ec4899, #7c3aed)',
-              transition: 'all 0.05s ease',
-            }}></div>
-
-            {/* Sliding heart pointer */}
-            <div style={{
-              position: 'absolute', top: '-6px', left: `${percentage}%`,
-              transform: 'translateX(-50%)', fontSize: '1.6rem',
-              transition: 'all 0.05s ease',
-            }}>
-              ❤️
-            </div>
+            💖
           </div>
         </div>
 
-        {/* Action button / Mashing button */}
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '15px' }}>
-          {state.phase === 'ready' && (
-            <button onClick={startFight} className="btn-cute btn-cute-primary" style={{ padding: '0.8rem 2.5rem', fontSize: '1.1rem' }}>
-              <Zap size={16} /> Start Duel!
+        {/* Action Button */}
+        <div style={{ textAlign: 'center', marginBottom: '1.5rem' }}>
+          {state.phase === 'ready' && role === 'host' && (
+            <button onClick={startMatch} className="btn-cute btn-cute-primary" style={{ padding: '0.8rem 2rem', fontSize: '1.1rem', background: '#db2777', borderColor: '#db2777' }}>
+              <Zap size={20} /> Start Tug-of-War!
             </button>
           )}
 
           {state.phase === 'playing' && (
             <button
               onClick={handleTap}
+              className="btn-cute btn-cute-primary"
               style={{
-                width: '120px', height: '120px', borderRadius: '50%',
-                background: 'radial-gradient(circle, #f472b6, #ec4899)',
-                border: '4px solid #1e1b4b', boxShadow: '4px 4px 0px #1e1b4b',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                fontSize: '3.5rem', cursor: 'pointer', transition: 'transform 0.05s active',
-                transform: 'scale(1)',
-                userSelect: 'none',
+                width: '100%',
+                padding: '1.8rem',
+                fontSize: '1.4rem',
+                justifyContent: 'center',
+                background: role === 'host' ? '#7c3aed' : '#ec4899',
+                borderColor: role === 'host' ? '#7c3aed' : '#ec4899'
               }}
-              onMouseDown={(e) => { e.currentTarget.style.transform = 'scale(0.95)'; }}
-              onMouseUp={(e) => { e.currentTarget.style.transform = 'scale(1)'; }}
-              onTouchStart={(e) => { e.currentTarget.style.transform = 'scale(0.95)'; }}
-              onTouchEnd={(e) => { e.currentTarget.style.transform = 'scale(1)'; }}
             >
-              ❤️
-            </button>
-          )}
-
-          {state.phase === 'ended' && (
-            <button onClick={restartGame} className="btn-cute btn-cute-primary" style={{ padding: '0.8rem 2rem' }}>
-              <RefreshCw size={16} /> Rematch
+              <Heart size={28} fill="#ffffff" /> TAP FAST! TAP FAST!
             </button>
           )}
         </div>
+
+        {/* Winner Banner */}
+        {state.phase === 'ended' && (
+          <div style={{ textAlign: 'center' }}>
+            <h3 style={{ fontSize: '1.5rem', color: state.winner === role ? '#059669' : '#dc2626', fontFamily: 'var(--font-world)', marginBottom: '0.6rem' }}>
+              {state.winner === role ? '🎉 Tug-of-War Champion!' : `💔 ${opponentName || 'Partner'} Won!`}
+            </h3>
+            {role === 'host' && (
+              <button onClick={startMatch} className="btn-cute btn-cute-primary" style={{ padding: '0.65rem 1.6rem' }}>
+                <RefreshCw size={16} /> Play Next Round
+              </button>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useGamePeer } from '../utils/peerConnection';
-import { ArrowLeft, RefreshCw, Trash2 } from 'lucide-react';
+import { RefreshCw, Trash2, Send } from 'lucide-react';
+import { GameHeader } from './GameHeader';
 
 interface Point {
   x: number;
@@ -30,6 +31,15 @@ const WORDS = [
   'BALLOON', 'DOUGHNUT', 'STAR', 'MOON', 'ICE CREAM'
 ];
 
+function shuffle<T>(arr: T[]): T[] {
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
 const INITIAL: DoodleState = {
   phase: 'setup',
   drawer: 'host',
@@ -42,13 +52,18 @@ const INITIAL: DoodleState = {
 };
 
 export const DoodleOnline: React.FC = () => {
-  const { role, sendGameAction, gameState, selectGame, opponentName, playerName } = useGamePeer();
+  const { role, sendGameAction, gameState, opponentName, playerName } = useGamePeer();
+
+  // Host auto-initialization
+  useEffect(() => {
+    if (role === 'host' && (!gameState || gameState.phase === undefined)) {
+      sendGameAction(INITIAL);
+    }
+  }, [role, gameState, sendGameAction]);
+
   const state: DoodleState = gameState ?? INITIAL;
   const stateRef = useRef(state);
-
-  useEffect(() => {
-    stateRef.current = state;
-  }, [state]);
+  useEffect(() => { stateRef.current = state; }, [state]);
 
   const [localGuess, setLocalGuess] = useState('');
   const [isDrawing, setIsDrawing] = useState(false);
@@ -57,232 +72,190 @@ export const DoodleOnline: React.FC = () => {
   const svgRef = useRef<SVGSVGElement | null>(null);
 
   const isDrawer = state.drawer === role;
-  const isGuesser = !isDrawer;
 
-  const startRound = () => {
-    // Select a random word
-    const randomWord = WORDS[Math.floor(Math.random() * WORDS.length)];
-    const nextDrawer = state.round === 1 ? 'host' : (stateRef.current.drawer === 'host' ? 'guest' : 'host');
-    
+  const startRound = (word: string) => {
     sendGameAction({
       ...state,
       phase: 'playing',
-      drawer: nextDrawer,
-      secretWord: randomWord,
+      secretWord: word,
       strokes: [],
       guesses: [],
     });
   };
 
-  const handleMouseDown = (e: React.MouseEvent<SVGSVGElement> | React.TouchEvent<SVGSVGElement>) => {
+  const getPoint = (e: React.MouseEvent | React.TouchEvent): Point | null => {
+    if (!svgRef.current) return null;
+    const rect = svgRef.current.getBoundingClientRect();
+    const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
+    const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
+    return {
+      x: ((clientX - rect.left) / rect.width) * 400,
+      y: ((clientY - rect.top) / rect.height) * 300,
+    };
+  };
+
+  const handlePointerDown = (e: React.MouseEvent | React.TouchEvent) => {
     if (!isDrawer || state.phase !== 'playing') return;
+    const pt = getPoint(e);
+    if (!pt) return;
     setIsDrawing(true);
-    const pt = getSVGCoords(e);
-    if (pt) {
-      setCurrentStrokePoints([pt]);
-    }
+    setCurrentStrokePoints([pt]);
   };
 
-  const handleMouseMove = (e: React.MouseEvent<SVGSVGElement> | React.TouchEvent<SVGSVGElement>) => {
+  const handlePointerMove = (e: React.MouseEvent | React.TouchEvent) => {
     if (!isDrawer || !isDrawing || state.phase !== 'playing') return;
-    const pt = getSVGCoords(e);
-    if (pt) {
-      setCurrentStrokePoints(prev => [...prev, pt]);
-    }
+    const pt = getPoint(e);
+    if (!pt) return;
+    setCurrentStrokePoints(prev => [...prev, pt]);
   };
 
-  const handleMouseUp = () => {
-    if (!isDrawer || !isDrawing || state.phase !== 'playing') return;
+  const handlePointerUp = () => {
+    if (!isDrawer || !isDrawing) return;
     setIsDrawing(false);
-
     if (currentStrokePoints.length > 0) {
       const newStroke: Stroke = {
         points: currentStrokePoints,
         color: '#7c3aed',
-        width: 4
+        width: 4,
       };
-
-      const updatedStrokes = [...state.strokes, newStroke];
       sendGameAction({
-        ...state,
-        strokes: updatedStrokes
+        ...stateRef.current,
+        strokes: [...stateRef.current.strokes, newStroke],
       });
     }
     setCurrentStrokePoints([]);
   };
 
-  const getSVGCoords = (e: React.MouseEvent<SVGSVGElement> | React.TouchEvent<SVGSVGElement>): Point | null => {
-    if (!svgRef.current) return null;
-    const rect = svgRef.current.getBoundingClientRect();
-    
-    let clientX = 0;
-    let clientY = 0;
-
-    if ('touches' in e) {
-      if (e.touches.length === 0) return null;
-      clientX = e.touches[0].clientX;
-      clientY = e.touches[0].clientY;
-    } else {
-      clientX = e.clientX;
-      clientY = e.clientY;
-    }
-
-    // Scale coords to viewBox (0 0 400 300)
-    const x = ((clientX - rect.left) / rect.width) * 400;
-    const y = ((clientY - rect.top) / rect.height) * 300;
-    return { x, y };
-  };
-
-  const clearCanvas = () => {
+  const handleClearCanvas = () => {
     if (!isDrawer) return;
     sendGameAction({
-      ...state,
-      strokes: []
+      ...stateRef.current,
+      strokes: [],
     });
   };
 
-  const submitGuess = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!localGuess.trim() || state.phase !== 'playing' || !isGuesser) return;
-
+  const handleSendGuess = () => {
+    if (!localGuess.trim() || isDrawer || state.phase !== 'playing') return;
     const guessText = localGuess.trim().toUpperCase();
     const isCorrect = guessText === state.secretWord;
 
-    const newGuess = {
-      sender: playerName,
-      text: guessText,
-      correct: isCorrect
-    };
+    const s = stateRef.current;
+    const newGuesses = [...s.guesses, { sender: playerName, text: guessText, correct: isCorrect }];
 
-    const updatedGuesses = [...state.guesses, newGuess];
-    
-    let nextState: DoodleState = {
-      ...state,
-      guesses: updatedGuesses
-    };
+    let nextHostScore = s.hostScore;
+    let nextGuestScore = s.guestScore;
 
     if (isCorrect) {
-      nextState.phase = 'ended';
-      if (role === 'host') {
-        nextState.hostScore = state.hostScore + 1;
-      } else {
-        nextState.guestScore = state.guestScore + 1;
-      }
+      if (role === 'host') nextHostScore += 1;
+      else nextGuestScore += 1;
     }
 
-    sendGameAction(nextState);
+    sendGameAction({
+      ...s,
+      guesses: newGuesses,
+      hostScore: nextHostScore,
+      guestScore: nextGuestScore,
+      phase: isCorrect ? 'ended' : 'playing',
+    });
     setLocalGuess('');
   };
 
   const nextRound = () => {
-    const s = stateRef.current;
+    const nextDrawer = state.drawer === 'host' ? 'guest' : 'host';
     sendGameAction({
-      ...s,
+      ...state,
       phase: 'setup',
-      round: s.round + 1,
+      drawer: nextDrawer,
+      secretWord: '',
+      strokes: [],
+      guesses: [],
+      round: state.round + 1,
     });
   };
 
-  // Convert points to SVG path data string
-  const getPathData = (points: Point[]): string => {
-    if (points.length === 0) return '';
-    let d = `M ${points[0].x} ${points[0].y}`;
-    for (let i = 1; i < points.length; i++) {
-      d += ` L ${points[i].x} ${points[i].y}`;
-    }
-    return d;
-  };
+  const resetAll = () => sendGameAction(INITIAL);
 
   return (
-    <div className="container-cute" style={{ maxWidth: '650px' }}>
-      <div className="card-cute" style={{ background: '#fefcf3', border: '1.5px solid #fef3c7' }}>
-        {/* Header */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
-          <button onClick={() => selectGame(null)} className="btn-cute btn-cute-secondary" style={{ padding: '0.4rem 0.9rem', fontSize: '0.85rem' }}>
-            <ArrowLeft size={15} /> Back
-          </button>
-          <span className="badge-cute">Doodle Online 🎨</span>
-        </div>
+    <div className="game-container-responsive">
+      <GameHeader
+        title="Doodle Quiz"
+        emoji="🎨"
+        instructions={[
+          "The Drawer picks a secret word and draws on the canvas.",
+          "The Guesser watches live strokes and types guesses into the box.",
+          "Guessing the word correctly ends the round and awards points!"
+        ]}
+      />
 
-        {/* Scores */}
-        <div style={{
-          display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px',
-          background: '#fef3c7', padding: '0.8rem', borderRadius: '15px',
-          textAlign: 'center', marginBottom: '1.5rem', border: '2px solid #1e1b4b'
-        }}>
-          <div>
-            <div style={{ fontSize: '0.8rem', color: '#b45309' }}>{playerName} Score</div>
-            <div style={{ fontSize: '1.6rem', fontWeight: 800, color: '#1e1b4b' }}>
-              {role === 'host' ? state.hostScore : state.guestScore}
-            </div>
-          </div>
-          <div>
-            <div style={{ fontSize: '0.8rem', color: '#b45309' }}>{opponentName || 'Partner'} Score</div>
-            <div style={{ fontSize: '1.6rem', fontWeight: 800, color: '#1e1b4b' }}>
-              {role === 'host' ? state.guestScore : state.hostScore}
-            </div>
+      <div className="card-cute" style={{ background: '#faf5ff', border: '1.5px solid #ddd6fe' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.2rem', flexWrap: 'wrap', gap: '0.4rem' }}>
+          <span className="badge-cute" style={{ background: isDrawer ? '#f3e8ff' : '#dcfce7', color: isDrawer ? '#7c3aed' : '#15803d' }}>
+            {isDrawer ? '🎨 You are the Drawer!' : `💬 Guessing ${opponentName || 'Partner'}'s drawing...`}
+          </span>
+          <div style={{ display: 'flex', gap: '1rem', fontFamily: 'var(--font-world)', fontSize: '0.95rem' }}>
+            <span style={{ color: '#7c3aed' }}>Host: {state.hostScore}</span>
+            <span style={{ color: '#ec4899' }}>Guest: {state.guestScore}</span>
           </div>
         </div>
 
-        {/* Setup Phase */}
+        {/* SETUP PHASE */}
         {state.phase === 'setup' && (
-          <div style={{ textAlign: 'center', padding: '2rem 0' }}>
-            <h2 className="heading-lg" style={{ color: '#d97706' }}>Round {state.round} 🎨</h2>
-            <p style={{ color: '#6b7280', marginBottom: '1.5rem' }}>
-              {state.round === 1 ? 'Prepare to draw or guess!' : 'Get ready for the next round!'}
-            </p>
-            <p style={{ fontWeight: 700, color: '#4c1d95', marginBottom: '1.5rem' }}>
-              {isDrawer ? "You will be drawing! ✏️" : `${opponentName || 'Partner'} will be drawing! 🔍`}
-            </p>
-            <button onClick={startRound} className="btn-cute btn-cute-primary" style={{ padding: '0.8rem 2rem' }}>
-              {isDrawer ? "Get Secret Word & Start! ⚡" : "Ready! 👍"}
-            </button>
+          <div style={{ textAlign: 'center', padding: '1.5rem 0' }}>
+            {isDrawer ? (
+              <div>
+                <h3 className="heading-lg" style={{ fontSize: '1.3rem', color: '#7c3aed', marginBottom: '1rem' }}>
+                  Pick a secret word to draw:
+                </h3>
+                <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'center', flexWrap: 'wrap' }}>
+                  {shuffle(WORDS).slice(0, 4).map(w => (
+                    <button
+                      key={w}
+                      onClick={() => startRound(w)}
+                      className="btn-cute btn-cute-primary"
+                      style={{ padding: '0.6rem 1.2rem', fontSize: '0.9rem' }}
+                    >
+                      {w}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <p style={{ color: '#6b7280', fontSize: '1rem' }}>
+                Waiting for {opponentName || 'partner'} to select a secret word... 🎨
+              </p>
+            )}
           </div>
         )}
 
-        {/* Playing & Ended Phase */}
-        {state.phase !== 'setup' && (
+        {/* PLAYING OR ENDED PHASE */}
+        {(state.phase === 'playing' || state.phase === 'ended') && (
           <div>
-            {/* Status bar */}
-            <div style={{
-              display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-              marginBottom: '1rem', background: '#fefaf0', padding: '0.6rem 1rem',
-              borderRadius: '12px', border: '1.5px solid #1e1b4b'
-            }}>
-              <div>
-                <span className="font-cute" style={{ color: '#b45309', fontSize: '0.9rem' }}>
-                  {isDrawer ? '✏️ You are drawing' : `🔍 Guessing ${opponentName}'s drawing`}
-                </span>
-              </div>
-              {state.phase === 'playing' && isDrawer && (
-                <div style={{
-                  background: '#f5f3ff', border: '1.5px solid #7c3aed',
-                  padding: '3px 8px', borderRadius: '8px', fontSize: '0.85rem'
-                }}>
-                  Word: <strong style={{ color: '#7c3aed' }}>{state.secretWord}</strong>
-                </div>
-              )}
-            </div>
-
-            {/* Canvas / SVG Area */}
-            <div style={{ position: 'relative', width: '100%', border: '3px solid #1e1b4b', borderRadius: '15px', overflow: 'hidden', background: '#fff', boxShadow: '4px 4px 0 #1e1b4b', marginBottom: '1rem' }}>
+            {/* SVG Canvas */}
+            <div style={{ position: 'relative', marginBottom: '1rem' }}>
               <svg
                 ref={svgRef}
                 viewBox="0 0 400 300"
-                style={{ width: '100%', height: '300px', display: 'block', touchAction: 'none', cursor: isDrawer && state.phase === 'playing' ? 'crosshair' : 'default' }}
-                onMouseDown={handleMouseDown}
-                onMouseMove={handleMouseMove}
-                onMouseUp={handleMouseUp}
-                onMouseLeave={handleMouseUp}
-                onTouchStart={handleMouseDown}
-                onTouchMove={handleMouseMove}
-                onTouchEnd={handleMouseUp}
+                className="canvas-responsive"
+                onMouseDown={handlePointerDown}
+                onMouseMove={handlePointerMove}
+                onMouseUp={handlePointerUp}
+                onTouchStart={handlePointerDown}
+                onTouchMove={handlePointerMove}
+                onTouchEnd={handlePointerUp}
+                style={{
+                  background: '#ffffff',
+                  border: '2px solid #ddd6fe',
+                  borderRadius: '18px',
+                  width: '100%',
+                  height: '240px',
+                  touchAction: 'none',
+                  cursor: isDrawer ? 'crosshair' : 'default'
+                }}
               >
-                {/* Drawn strokes */}
                 {state.strokes.map((stroke, i) => (
-                  <path
+                  <polyline
                     key={i}
-                    d={getPathData(stroke.points)}
+                    points={stroke.points.map(p => `${p.x},${p.y}`).join(' ')}
                     fill="none"
                     stroke={stroke.color}
                     strokeWidth={stroke.width}
@@ -290,11 +263,9 @@ export const DoodleOnline: React.FC = () => {
                     strokeLinejoin="round"
                   />
                 ))}
-
-                {/* Currently active stroke drawing locally */}
                 {currentStrokePoints.length > 0 && (
-                  <path
-                    d={getPathData(currentStrokePoints)}
+                  <polyline
+                    points={currentStrokePoints.map(p => `${p.x},${p.y}`).join(' ')}
                     fill="none"
                     stroke="#7c3aed"
                     strokeWidth={4}
@@ -304,82 +275,52 @@ export const DoodleOnline: React.FC = () => {
                 )}
               </svg>
 
-              {/* Drawer controls */}
               {isDrawer && state.phase === 'playing' && (
                 <button
-                  onClick={clearCanvas}
-                  style={{
-                    position: 'absolute', bottom: '10px', right: '10px',
-                    background: '#fee2e2', border: '1.5px solid #dc2626',
-                    borderRadius: '8px', padding: '4px 8px', display: 'flex',
-                    alignItems: 'center', gap: '4px', cursor: 'pointer',
-                    color: '#dc2626', fontSize: '0.8rem', fontWeight: 'bold'
-                  }}
+                  onClick={handleClearCanvas}
+                  className="btn-cute btn-cute-secondary"
+                  style={{ position: 'absolute', top: '10px', right: '10px', padding: '0.35rem 0.7rem', fontSize: '0.8rem' }}
                 >
-                  <Trash2 size={13} /> Clear
+                  <Trash2 size={14} /> Clear
                 </button>
               )}
-
-              {/* Game Winner Overlay */}
-              {state.phase === 'ended' && (
-                <div style={{
-                  position: 'absolute', inset: 0, background: 'rgba(255,255,255,0.9)',
-                  display: 'flex', flexDirection: 'column', justifyContent: 'center',
-                  alignItems: 'center', textAlign: 'center', padding: '1rem',
-                  animation: 'pop-in 0.4s ease'
-                }}>
-                  <div style={{ fontSize: '3rem', marginBottom: '0.5rem' }}>🎉</div>
-                  <h3 className="font-cute" style={{ color: '#059669', fontSize: '1.5rem', margin: '0 0 0.5rem' }}>
-                    Guessed Correctly!
-                  </h3>
-                  <p style={{ color: '#6b7280', fontSize: '0.9rem', marginBottom: '1.5rem' }}>
-                    The secret word was <strong style={{ color: '#7c3aed', fontSize: '1.1rem' }}>{state.secretWord}</strong>
-                  </p>
-                  <button onClick={nextRound} className="btn-cute btn-cute-primary">
-                    <RefreshCw size={15} /> Next Round
-                  </button>
-                </div>
-              )}
             </div>
 
-            {/* Guesses Log & Input */}
-            <div style={{ display: 'grid', gridTemplateColumns: isGuesser && state.phase === 'playing' ? '1fr' : '1fr', gap: '10px' }}>
-              <div style={{
-                background: '#fefaf0', border: '1.5px solid #1e1b4b',
-                borderRadius: '12px', padding: '0.8rem', minHeight: '80px', maxHeight: '110px',
-                overflowY: 'auto', display: 'flex', flexDirection: 'column-reverse', gap: '4px'
-              }}>
-                {state.guesses.length === 0 ? (
-                  <span style={{ color: '#9ca3af', fontSize: '0.82rem', textAlign: 'center', margin: 'auto' }}>
-                    No guesses yet.
-                  </span>
-                ) : (
-                  [...state.guesses].reverse().map((g, idx) => (
-                    <div key={idx} style={{
-                      fontSize: '0.85rem', color: g.correct ? '#059669' : '#1e1b4b',
-                      fontWeight: g.correct ? 'bold' : 'normal'
-                    }}>
-                      <strong>{g.sender}:</strong> {g.text} {g.correct ? '🏆 Correct!' : ''}
-                    </div>
-                  ))
+            {/* Guesser Input */}
+            {!isDrawer && state.phase === 'playing' && (
+              <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem' }}>
+                <input
+                  className="input-cute"
+                  placeholder="Type your guess..."
+                  value={localGuess}
+                  onChange={e => setLocalGuess(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && handleSendGuess()}
+                  style={{ fontSize: '0.95rem' }}
+                />
+                <button onClick={handleSendGuess} className="btn-cute btn-cute-primary" style={{ padding: '0.65rem 1rem' }}>
+                  <Send size={16} />
+                </button>
+              </div>
+            )}
+
+            {/* Ended Banner */}
+            {state.phase === 'ended' && (
+              <div style={{ textAlign: 'center', marginBottom: '1.2rem' }}>
+                <h3 style={{ fontSize: '1.4rem', color: '#059669', fontFamily: 'var(--font-world)', marginBottom: '0.4rem' }}>
+                  🎉 Correct! Secret word was: {state.secretWord}
+                </h3>
+                {role === 'host' && (
+                  <div style={{ display: 'flex', gap: '0.8rem', justifyContent: 'center' }}>
+                    <button onClick={nextRound} className="btn-cute btn-cute-primary" style={{ padding: '0.65rem 1.6rem' }}>
+                      <RefreshCw size={16} /> Next Round
+                    </button>
+                    <button onClick={resetAll} className="btn-cute btn-cute-secondary" style={{ padding: '0.65rem 1rem' }}>
+                      Reset Scores
+                    </button>
+                  </div>
                 )}
               </div>
-
-              {isGuesser && state.phase === 'playing' && (
-                <form onSubmit={submitGuess} style={{ display: 'flex', gap: '8px', marginTop: '5px' }}>
-                  <input
-                    className="input-cute"
-                    placeholder="Type your guess here..."
-                    value={localGuess}
-                    onChange={e => setLocalGuess(e.target.value)}
-                    style={{ flex: 1, padding: '0.6rem 0.8rem', fontSize: '0.9rem', borderRadius: '10px' }}
-                  />
-                  <button type="submit" className="btn-cute btn-cute-primary" style={{ padding: '0.6rem 1.2rem', borderRadius: '10px', fontSize: '0.9rem' }}>
-                    Submit
-                  </button>
-                </form>
-              )}
-            </div>
+            )}
           </div>
         )}
       </div>

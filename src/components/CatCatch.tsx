@@ -1,11 +1,12 @@
 import React, { useEffect, useRef } from 'react';
 import { useGamePeer } from '../utils/peerConnection';
-import { ArrowLeft, Play, Award, Sparkles } from 'lucide-react';
+import { RefreshCw, Play } from 'lucide-react';
+import { GameHeader } from './GameHeader';
 
 interface FallingItem {
   id: string;
-  x: number; // 0-100%
-  y: number; // 0-100%
+  x: number;
+  y: number;
   type: 'cat' | 'heart' | 'yarn';
   speed: number;
 }
@@ -24,7 +25,15 @@ const INIT: CatState = { phase: 'lobby', items: [], hostX: 50, guestX: 50, hostS
 const EMOJI: Record<string, string> = { cat: '🐱', heart: '💜', yarn: '🧶' };
 
 export const CatCatch: React.FC = () => {
-  const { role, sendGameAction, gameState, selectGame, opponentName, playerName } = useGamePeer();
+  const { role, sendGameAction, gameState, opponentName } = useGamePeer();
+
+  // Host auto-initialization
+  useEffect(() => {
+    if (role === 'host' && (!gameState || gameState.phase === undefined)) {
+      sendGameAction(INIT);
+    }
+  }, [role, gameState, sendGameAction]);
+
   const state: CatState = gameState ?? INIT;
 
   const containerRef = useRef<HTMLDivElement>(null);
@@ -33,12 +42,10 @@ export const CatCatch: React.FC = () => {
   const timerRef = useRef<number | null>(null);
   const stateRef = useRef(state);
   const localXRef = useRef(50);
-  const oppXRef = useRef(50);
 
   useEffect(() => {
     stateRef.current = state;
-    oppXRef.current = role === 'host' ? state.guestX : state.hostX;
-  }, [state, role]);
+  }, [state]);
 
   const handleMove = (e: React.MouseEvent<HTMLDivElement> | React.TouchEvent<HTMLDivElement>) => {
     if (state.phase !== 'playing' || !containerRef.current) return;
@@ -47,6 +54,7 @@ export const CatCatch: React.FC = () => {
     if (!clientX) return;
     const x = Math.max(5, Math.min(95, ((clientX - rect.left) / rect.width) * 100));
     localXRef.current = x;
+
     if (role === 'guest') {
       sendGameAction({ ...stateRef.current, guestX: x });
     }
@@ -57,7 +65,7 @@ export const CatCatch: React.FC = () => {
     sendGameAction({ ...INIT, phase: 'playing' });
   };
 
-  // Host runs all physics
+  // Host runs physics loop
   useEffect(() => {
     if (role !== 'host' || state.phase !== 'playing') {
       if (loopRef.current) cancelAnimationFrame(loopRef.current);
@@ -66,42 +74,64 @@ export const CatCatch: React.FC = () => {
       return;
     }
 
-    spawnRef.current = window.setInterval(() => {
-      const types: ('cat' | 'heart' | 'yarn')[] = ['cat', 'cat', 'heart', 'yarn'];
-      const newItem: FallingItem = {
-        id: Math.random().toString(36).slice(2),
-        x: Math.random() * 80 + 10,
-        y: 0,
-        type: types[Math.floor(Math.random() * types.length)],
-        speed: Math.random() * 1.2 + 0.7,
-      };
-      sendGameAction({ ...stateRef.current, items: [...stateRef.current.items, newItem] });
-    }, 900);
-
     timerRef.current = window.setInterval(() => {
-      const next = stateRef.current.timeLeft - 1;
-      sendGameAction({ ...stateRef.current, timeLeft: next, phase: next <= 0 ? 'ended' : 'playing' });
+      const s = stateRef.current;
+      if (s.timeLeft <= 1) {
+        clearInterval(timerRef.current!);
+        clearInterval(spawnRef.current!);
+        cancelAnimationFrame(loopRef.current!);
+        sendGameAction({ ...s, phase: 'ended', timeLeft: 0 });
+      } else {
+        sendGameAction({ ...s, timeLeft: s.timeLeft - 1 });
+      }
     }, 1000);
 
-    const tick = () => {
+    spawnRef.current = window.setInterval(() => {
       const s = stateRef.current;
-      if (s.phase !== 'playing') return;
-      const BASKET_Y = 82;
-      const RADIUS = 8;
-      let hScore = s.hostScore, gScore = s.guestScore;
-      const remaining = s.items.map(item => ({ ...item, y: item.y + item.speed * 1.4 }))
+      if (s.items.length > 8) return;
+      const types: ('cat' | 'heart' | 'yarn')[] = ['cat', 'cat', 'heart', 'yarn'];
+      const type = types[Math.floor(Math.random() * types.length)];
+      const newItem: FallingItem = {
+        id: Math.random().toString(),
+        x: Math.floor(Math.random() * 86) + 7,
+        y: 0,
+        type,
+        speed: Math.random() * 0.8 + 0.6,
+      };
+      sendGameAction({ ...s, items: [...s.items, newItem] });
+    }, 800);
+
+    let lastTick = performance.now();
+    const tick = (now: number) => {
+      const delta = (now - lastTick) / 16;
+      lastTick = now;
+      const s = stateRef.current;
+      const hX = localXRef.current;
+      const gX = s.guestX;
+
+      let hScore = s.hostScore;
+      let gScore = s.guestScore;
+
+      const updated = s.items.map(item => ({ ...item, y: item.y + item.speed * delta }))
         .filter(item => {
-          if (item.y > 92) return false;
-          if (item.y >= BASKET_Y - 3 && item.y <= BASKET_Y + 4) {
-            const pts = item.type === 'heart' ? 2 : 1;
-            if (Math.abs(item.x - localXRef.current) < RADIUS) { hScore += pts; return false; }
-            if (Math.abs(item.x - oppXRef.current) < RADIUS) { gScore += pts; return false; }
+          if (item.y >= 82 && item.y <= 92) {
+            if (Math.abs(item.x - hX) < 10) { hScore += 1; return false; }
+            if (Math.abs(item.x - gX) < 10) { gScore += 1; return false; }
           }
-          return true;
+          return item.y < 100;
         });
-      sendGameAction({ ...s, items: remaining, hostX: localXRef.current, hostScore: hScore, guestScore: gScore });
+
+      sendGameAction({
+        ...s,
+        hostX: hX,
+        items: updated,
+        hostScore: hScore,
+        guestScore: gScore,
+      });
+
       loopRef.current = requestAnimationFrame(tick);
     };
+
     loopRef.current = requestAnimationFrame(tick);
 
     return () => {
@@ -109,169 +139,120 @@ export const CatCatch: React.FC = () => {
       if (spawnRef.current) clearInterval(spawnRef.current);
       if (timerRef.current) clearInterval(timerRef.current);
     };
-  }, [role, state.phase]);
+  }, [role, state.phase, sendGameAction]);
 
-  const myScore = role === 'host' ? state.hostScore : state.guestScore;
-  const theirScore = role === 'host' ? state.guestScore : state.hostScore;
+  const iWon = (role === 'host' && state.hostScore > state.guestScore) || (role === 'guest' && state.guestScore > state.hostScore);
 
   return (
-    <div className="container-cute" style={{ maxWidth: '820px' }}>
+    <div className="game-container-responsive">
+      <GameHeader
+        title="Cat Catching"
+        emoji="🐱"
+        instructions={[
+          "Move your basket horizontally by dragging your finger/mouse across the play area.",
+          "Catch falling cats 🐱, hearts 💜, and yarn 🧶 to score points.",
+          "Highest score caught in 45 seconds wins!"
+        ]}
+      />
+
       <div className="card-cute" style={{ background: '#faf5ff', border: '1.5px solid #ddd6fe' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-          <button onClick={() => selectGame(null)} className="btn-cute btn-cute-secondary" style={{ padding: '0.4rem 0.9rem', fontSize: '0.85rem' }}>
-            <ArrowLeft size={15} /> Back
-          </button>
-          <span className="badge-cute">Cat Catching 🐱</span>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.2rem', flexWrap: 'wrap', gap: '0.4rem' }}>
+          <span className="badge-cute" style={{ background: '#ede9fe', color: '#6d28d9' }}>
+            ⏱️ {state.timeLeft}s left
+          </span>
+          <div style={{ display: 'flex', gap: '1rem', fontFamily: 'var(--font-world)', fontSize: '0.95rem' }}>
+            <span style={{ color: '#7c3aed' }}>Host 🧺: {state.hostScore}</span>
+            <span style={{ color: '#ec4899' }}>Guest 🧺: {state.guestScore}</span>
+          </div>
         </div>
 
-        {/* LOBBY */}
+        {/* LOBBY PHASE */}
         {state.phase === 'lobby' && (
-          <div style={{ textAlign: 'center', padding: '2.5rem 0' }}>
-            <div style={{ fontSize: '3rem', marginBottom: '1rem', animation: 'float 2s ease-in-out infinite' }}>🐱🧺</div>
-            <h2 className="heading-lg">Catch Cats Together!</h2>
-            <p style={{ color: '#6b7280', maxWidth: '480px', margin: '0 auto 2rem', lineHeight: 1.6 }}>
-              Move your basket left and right to catch falling kittens, hearts 💜, and yarn balls 🧶. Work together for the highest score!
-            </p>
+          <div style={{ textAlign: 'center', padding: '2rem 1rem' }}>
+            <div style={{ fontSize: '3.5rem', marginBottom: '1rem', animation: 'float 2.5s ease infinite' }}>🐱🧺</div>
+            <h3 className="heading-lg" style={{ fontSize: '1.4rem', color: '#ec4899', marginBottom: '0.6rem' }}>
+              Ready to catch falling cats?
+            </h3>
             {role === 'host' ? (
-              <button onClick={startGame} className="btn-cute btn-cute-primary" style={{ padding: '0.9rem 2.5rem' }}>
+              <button onClick={startGame} className="btn-cute btn-cute-primary" style={{ padding: '0.75rem 1.8rem', background: '#ec4899', borderColor: '#ec4899' }}>
                 <Play size={18} /> Start Catching!
               </button>
             ) : (
-              <div className="badge-cute" style={{ padding: '0.7rem 1.5rem' }}>
-                Waiting for {opponentName} to start... 😸
-              </div>
+              <p style={{ color: '#6b7280' }}>Waiting for {opponentName || 'host'} to start...</p>
             )}
           </div>
         )}
 
-        {/* SCORE BAR (Playing & Ended) */}
-        {state.phase !== 'lobby' && (
-          <div style={{
-            display: 'flex', justifyContent: 'space-around', alignItems: 'center',
-            background: '#fff', borderRadius: '14px', padding: '0.8rem 1rem',
-            border: '1px solid #ede9fe', marginBottom: '1rem',
-          }}>
-            <div style={{ textAlign: 'center' }}>
-              <div style={{ fontSize: '0.8rem', color: '#6b7280' }}>Your Basket 🧺</div>
-              <div className="font-cute" style={{ fontSize: '1.5rem', color: '#7c3aed' }}>{myScore} pts</div>
-            </div>
-            <div style={{ textAlign: 'center', background: '#f5f3ff', padding: '0.4rem 1.2rem', borderRadius: '50px' }}>
-              <div style={{ fontSize: '0.8rem', color: '#7c3aed', fontWeight: 700 }}>TIME</div>
-              <div className="font-cute" style={{ fontSize: '1.4rem', color: '#4c1d95' }}>{state.timeLeft}s</div>
-            </div>
-            <div style={{ textAlign: 'center' }}>
-              <div style={{ fontSize: '0.8rem', color: '#6b7280' }}>{opponentName}'s Basket 🧺</div>
-              <div className="font-cute" style={{ fontSize: '1.5rem', color: '#8b5cf6' }}>{theirScore} pts</div>
-            </div>
-          </div>
-        )}
-
-        {/* GAME ARENA */}
+        {/* PLAYING PHASE */}
         {state.phase === 'playing' && (
           <div
             ref={containerRef}
             onMouseMove={handleMove}
             onTouchMove={handleMove}
+            className="canvas-responsive"
             style={{
-              height: '380px',
-              width: '100%',
-              background: 'linear-gradient(180deg, #f5f3ff 0%, #ede9fe 100%)',
-              borderRadius: '18px',
-              border: '2px dashed #c4b5fd',
+              height: '340px',
+              background: '#fce7f3',
+              border: '2px solid #ec4899',
+              borderRadius: '20px',
               position: 'relative',
               overflow: 'hidden',
               userSelect: 'none',
-              cursor: 'none',
+              marginBottom: '1rem'
             }}
           >
-            {/* Stars / decoration */}
-            {['10%', '30%', '55%', '75%', '90%'].map((l, i) => (
-              <div key={i} style={{ position: 'absolute', left: l, top: `${15 + i * 8}%`, fontSize: '0.7rem', opacity: 0.3, animation: `float ${2 + i}s ease-in-out infinite`, animationDelay: `${i * 0.5}s` }}>⭐</div>
-            ))}
-
             {/* Falling items */}
             {state.items.map(item => (
-              <div key={item.id} style={{
-                position: 'absolute',
-                left: `${item.x}%`,
-                top: `${item.y}%`,
-                transform: 'translate(-50%,-50%)',
-                fontSize: '1.8rem',
-                pointerEvents: 'none',
-                userSelect: 'none',
-                filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.1))',
-              }}>
+              <div
+                key={item.id}
+                style={{
+                  position: 'absolute',
+                  left: `${item.x}%`,
+                  top: `${item.y}%`,
+                  transform: 'translate(-50%, -50%)',
+                  fontSize: '1.8rem'
+                }}
+              >
                 {EMOJI[item.type]}
               </div>
             ))}
 
-            {/* My basket */}
+            {/* Host Basket */}
             <div style={{
               position: 'absolute',
-              left: `${role === 'host' ? localXRef.current : state.guestX}%`,
-              bottom: '10%',
+              bottom: '10px',
+              left: `${role === 'host' ? localXRef.current : state.hostX}%`,
               transform: 'translateX(-50%)',
-              display: 'flex', flexDirection: 'column', alignItems: 'center',
-              pointerEvents: 'none',
+              fontSize: '2rem',
+              transition: 'left 0.05s linear'
             }}>
-              <span style={{ fontSize: '0.7rem', background: '#7c3aed', color: '#fff', padding: '1px 6px', borderRadius: '4px', marginBottom: '1px' }}>Me</span>
-              <span style={{ fontSize: '2.4rem' }}>🧺</span>
+              🧺<span style={{ fontSize: '0.7rem', display: 'block', textAlign: 'center', color: '#7c3aed', fontWeight: 700 }}>Host</span>
             </div>
 
-            {/* Partner basket */}
+            {/* Guest Basket */}
             <div style={{
               position: 'absolute',
-              left: `${role === 'guest' ? localXRef.current : state.hostX}%`,
-              bottom: '10%',
+              bottom: '10px',
+              left: `${role === 'guest' ? localXRef.current : state.guestX}%`,
               transform: 'translateX(-50%)',
-              display: 'flex', flexDirection: 'column', alignItems: 'center',
-              pointerEvents: 'none',
-              transition: 'left 0.08s linear',
+              fontSize: '2rem',
+              transition: 'left 0.05s linear'
             }}>
-              <span style={{ fontSize: '0.7rem', background: '#8b5cf6', color: '#fff', padding: '1px 6px', borderRadius: '4px', marginBottom: '1px' }}>{opponentName || 'Partner'}</span>
-              <span style={{ fontSize: '2.4rem' }}>🧺</span>
-            </div>
-
-            <div style={{ position: 'absolute', bottom: '2%', width: '100%', textAlign: 'center', fontSize: '0.75rem', color: '#a78bfa', pointerEvents: 'none' }}>
-              Move mouse/finger to control basket
+              🧺<span style={{ fontSize: '0.7rem', display: 'block', textAlign: 'center', color: '#ec4899', fontWeight: 700 }}>Guest</span>
             </div>
           </div>
         )}
 
-        {/* ENDED */}
+        {/* ENDED PHASE */}
         {state.phase === 'ended' && (
-          <div style={{ textAlign: 'center', padding: '2rem 0', animation: 'pop-in 0.4s ease' }}>
-            <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '1rem' }}>
-              <Award size={56} color="#7c3aed" style={{ animation: 'float 3s ease infinite' }} />
-            </div>
-            <h3 className="font-cute" style={{ color: '#4c1d95', fontSize: '2rem', margin: '0 0 0.5rem' }}>Time's Up! 🏁</h3>
-
-            <div style={{ display: 'flex', justifyContent: 'center', gap: '2rem', margin: '1.5rem 0', flexWrap: 'wrap' }}>
-              <div style={{ textAlign: 'center' }}>
-                <div style={{ color: '#6b7280', fontSize: '0.85rem' }}>{playerName}</div>
-                <div className="font-cute" style={{ fontSize: '1.8rem', color: '#7c3aed' }}>{myScore}</div>
-              </div>
-              <div style={{ borderLeft: '2px solid #ddd6fe' }} />
-              <div style={{ textAlign: 'center' }}>
-                <div style={{ color: '#6b7280', fontSize: '0.85rem' }}>{opponentName}</div>
-                <div className="font-cute" style={{ fontSize: '1.8rem', color: '#8b5cf6' }}>{theirScore}</div>
-              </div>
-            </div>
-
-            <div style={{ background: '#f5f3ff', borderRadius: '14px', padding: '1rem', marginBottom: '1.5rem' }}>
-              <div style={{ fontSize: '0.85rem', color: '#6b7280', marginBottom: '4px' }}>TEAM TOTAL</div>
-              <div className="font-cute" style={{ fontSize: '2.2rem', color: '#4c1d95' }}>{myScore + theirScore} caught! 🎉</div>
-              <div style={{ fontSize: '0.85rem', color: '#8b5cf6', marginTop: '4px' }}>
-                {myScore + theirScore > 25 ? 'Expert cat rescuers! 🐈💜' : 'Great teamwork! 🥰'}
-              </div>
-            </div>
-
-            {role === 'host' ? (
-              <button onClick={startGame} className="btn-cute btn-cute-primary">
-                <Sparkles size={16} /> Play Again!
+          <div style={{ textAlign: 'center', padding: '1.5rem 0' }}>
+            <h3 style={{ fontSize: '1.5rem', color: state.hostScore === state.guestScore ? '#ca8a04' : iWon ? '#059669' : '#dc2626', fontFamily: 'var(--font-world)', marginBottom: '0.6rem' }}>
+              {state.hostScore === state.guestScore ? "It's a Tie!" : iWon ? '🎉 Ultimate Cat Catcher!' : `💔 ${opponentName || 'Partner'} Won!`}
+            </h3>
+            {role === 'host' && (
+              <button onClick={startGame} className="btn-cute btn-cute-primary" style={{ padding: '0.65rem 1.6rem', background: '#ec4899', borderColor: '#ec4899' }}>
+                <RefreshCw size={16} /> Play Again
               </button>
-            ) : (
-              <span className="badge-cute">Waiting for host to start again...</span>
             )}
           </div>
         )}

@@ -1,8 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import { useGamePeer } from '../utils/peerConnection';
-import { ArrowLeft, RefreshCw } from 'lucide-react';
-
-// Mood Mirror — both guess each other's current mood, score for matches
+import { RefreshCw } from 'lucide-react';
+import { GameHeader } from './GameHeader';
 
 interface MoodState {
   phase: 'picking' | 'result';
@@ -34,7 +33,15 @@ const INITIAL: MoodState = {
 };
 
 export const MoodMirror: React.FC = () => {
-  const { role, sendGameAction, gameState, selectGame, opponentName } = useGamePeer();
+  const { role, sendGameAction, gameState, opponentName } = useGamePeer();
+
+  // Host auto-initialization
+  useEffect(() => {
+    if (role === 'host' && (!gameState || gameState.phase === undefined)) {
+      sendGameAction(INITIAL);
+    }
+  }, [role, gameState, sendGameAction]);
+
   const state: MoodState = gameState ?? INITIAL;
   const stateRef = useRef(state);
   useEffect(() => { stateRef.current = state; }, [state]);
@@ -45,6 +52,20 @@ export const MoodMirror: React.FC = () => {
   const theirScore = role === 'host' ? state.guestScore : state.hostScore;
   const theirMood = role === 'host' ? state.guestMood : state.hostMood;
   const theirGuess = role === 'host' ? state.guestGuess : state.hostGuess;
+
+  const checkResolved = (s: MoodState): MoodState => {
+    if (s.hostMood !== null && s.guestMood !== null && s.hostGuess !== null && s.guestGuess !== null) {
+      const hBonus = s.hostGuess === s.guestMood ? 1 : 0;
+      const gBonus = s.guestGuess === s.hostMood ? 1 : 0;
+      return {
+        ...s,
+        phase: 'result',
+        hostScore: s.hostScore + hBonus,
+        guestScore: s.guestScore + gBonus,
+      };
+    }
+    return s;
+  };
 
   const setMyMood = (idx: number) => {
     if (myMood !== null) return;
@@ -60,177 +81,142 @@ export const MoodMirror: React.FC = () => {
     sendGameAction(checkResolved(next));
   };
 
-  const checkResolved = (s: MoodState): MoodState => {
-    if (s.hostMood !== null && s.guestMood !== null && s.hostGuess !== null && s.guestGuess !== null) {
-      // Both done — compute scores
-      const hostGotIt = s.hostGuess === s.guestMood ? 1 : 0;
-      const guestGotIt = s.guestGuess === s.hostMood ? 1 : 0;
-      return {
-        ...s, phase: 'result',
-        hostScore: s.hostScore + hostGotIt,
-        guestScore: s.guestScore + guestGotIt,
-      };
-    }
-    return s;
-  };
-
   const nextRound = () => {
-    const s = stateRef.current;
-    if (s.round >= MAX_ROUNDS) {
-      sendGameAction({ ...s, round: MAX_ROUNDS + 1 });
-      return;
+    if (role !== 'host') return;
+    if (state.round >= MAX_ROUNDS) {
+      sendGameAction(INITIAL);
+    } else {
+      sendGameAction({
+        ...state,
+        phase: 'picking',
+        hostMood: null, guestMood: null, hostGuess: null, guestGuess: null,
+        round: state.round + 1,
+      });
     }
-    sendGameAction({ ...INITIAL, hostScore: s.hostScore, guestScore: s.guestScore, round: s.round + 1 });
   };
 
-  const resetGame = () => sendGameAction({ ...INITIAL });
-  const gameOver = state.round > MAX_ROUNDS;
-  const iWon = myScore > theirScore;
-  const bothMoodSet = myMood !== null;
-  const bothGuessSet = myGuess !== null;
+  const resetAll = () => sendGameAction(INITIAL);
 
   return (
-    <div className="container-cute" style={{ maxWidth: '640px' }}>
+    <div className="game-container-responsive">
+      <GameHeader
+        title="Mood Mirror"
+        emoji="🪞"
+        instructions={[
+          "Select your current mood emoji in secret.",
+          "Guess what mood emoji your partner selected!",
+          "Earn 1 point for every accurate guess in the reveal!"
+        ]}
+      />
+
       <div className="card-cute" style={{ background: '#faf5ff', border: '1.5px solid #ddd6fe' }}>
-        {/* Header */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
-          <button onClick={() => selectGame(null)} className="btn-cute btn-cute-secondary" style={{ padding: '0.4rem 0.9rem', fontSize: '0.85rem' }}>
-            <ArrowLeft size={15} /> Back
-          </button>
-          <span className="badge-cute">Mood Mirror 🪞</span>
-          <button onClick={resetGame} className="btn-cute btn-cute-secondary" style={{ padding: '0.4rem 0.6rem' }}>
-            <RefreshCw size={14} />
-          </button>
-        </div>
-
-        {/* Scores */}
-        <div style={{ display: 'flex', justifyContent: 'space-around', background: '#fff', borderRadius: '14px', padding: '0.7rem', border: '1px solid #ede9fe', marginBottom: '1.2rem' }}>
-          <div style={{ textAlign: 'center' }}>
-            <div style={{ fontSize: '0.75rem', color: '#6b7280' }}>You 🪞</div>
-            <div className="font-cute" style={{ fontSize: '2rem', color: '#7c3aed' }}>{myScore}</div>
-          </div>
-          <div style={{ textAlign: 'center' }}>
-            <div style={{ fontSize: '0.7rem', color: '#9ca3af' }}>Round {Math.min(state.round, MAX_ROUNDS)}/{MAX_ROUNDS}</div>
-            <div style={{ fontSize: '0.8rem', color: '#6b7280' }}>Guess their mood!</div>
-          </div>
-          <div style={{ textAlign: 'center' }}>
-            <div style={{ fontSize: '0.75rem', color: '#6b7280' }}>{opponentName || 'Partner'} 🪞</div>
-            <div className="font-cute" style={{ fontSize: '2rem', color: '#ec4899' }}>{theirScore}</div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.2rem', flexWrap: 'wrap', gap: '0.4rem' }}>
+          <span className="badge-cute" style={{ background: '#ede9fe', color: '#6d28d9' }}>
+            Round {state.round} of {MAX_ROUNDS}
+          </span>
+          <div style={{ display: 'flex', gap: '1rem', fontFamily: 'var(--font-world)', fontSize: '0.95rem' }}>
+            <span style={{ color: '#7c3aed' }}>You: {myScore}</span>
+            <span style={{ color: '#ec4899' }}>{opponentName || 'Partner'}: {theirScore}</span>
           </div>
         </div>
 
-        {/* Game over */}
-        {gameOver && (
-          <div style={{ textAlign: 'center', padding: '2rem 0', animation: 'pop-in 0.5s ease' }}>
-            <div style={{ fontSize: '4rem', marginBottom: '0.5rem' }}>{iWon ? '🪞✨' : myScore === theirScore ? '🤝' : '💫'}</div>
-            <h2 className="font-cute" style={{ fontSize: '2rem', color: '#4c1d95', marginBottom: '0.5rem' }}>
-              {iWon ? 'You Win! 🎉' : myScore === theirScore ? "Mind Meld! 🤝" : `${opponentName || 'Partner'} Wins!`}
-            </h2>
-            <p style={{ color: '#6b7280', marginBottom: '2rem' }}>Final: {myScore} – {theirScore} correct guesses</p>
-            {role === 'host' && (
-              <button onClick={resetGame} className="btn-cute btn-cute-primary">Play Again 🪞</button>
-            )}
-          </div>
-        )}
-
-        {/* Picking phase */}
-        {!gameOver && state.phase === 'picking' && (
+        {/* PICKING PHASE */}
+        {state.phase === 'picking' && (
           <div>
-            {/* Step 1: set your mood */}
+            {/* Step 1: Select My Mood */}
             <div style={{ marginBottom: '1.5rem' }}>
-              <h3 className="font-cute" style={{ color: '#4c1d95', textAlign: 'center', marginBottom: '0.3rem', fontSize: '1.1rem' }}>
-                {bothMoodSet ? '✅ Your mood is set!' : 'Step 1: Pick YOUR current mood 🎭'}
+              <h3 style={{ fontSize: '1.05rem', color: '#7c3aed', marginBottom: '0.6rem', fontFamily: 'var(--font-cute)', textAlign: 'center' }}>
+                1️⃣ How are you feeling right now?
               </h3>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '0.5rem' }}>
-                {MOODS.map((m, i) => (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '0.6rem' }}>
+                {MOODS.map((m, idx) => (
                   <button
-                    key={i}
-                    onClick={() => setMyMood(i)}
-                    disabled={bothMoodSet}
+                    key={idx}
+                    onClick={() => setMyMood(idx)}
+                    disabled={myMood !== null}
                     style={{
-                      padding: '0.6rem 0.3rem', borderRadius: '12px', border: 'none', cursor: bothMoodSet ? 'default' : 'pointer',
-                      background: myMood === i ? 'linear-gradient(135deg,#7c3aed,#a78bfa)' : '#f5f3ff',
-                      color: myMood === i ? '#fff' : '#4c1d95', fontSize: '1.3rem',
-                      transition: 'all 0.2s', transform: myMood === i ? 'scale(1.08)' : 'scale(1)',
-                      boxShadow: myMood === i ? '0 4px 12px rgba(124,58,237,0.3)' : 'none',
-                      opacity: bothMoodSet && myMood !== i ? 0.4 : 1,
+                      background: myMood === idx ? '#f3e8ff' : '#ffffff',
+                      border: myMood === idx ? '2.5px solid #7c3aed' : '1.5px solid #ddd6fe',
+                      borderRadius: '14px',
+                      padding: '0.8rem 0.4rem',
+                      textAlign: 'center',
+                      cursor: myMood === null ? 'pointer' : 'default'
                     }}
                   >
-                    {m.emoji}
-                    <div style={{ fontSize: '0.62rem', marginTop: '2px', fontFamily: 'var(--font-cute)' }}>{m.label}</div>
+                    <div style={{ fontSize: '1.8rem' }}>{m.emoji}</div>
+                    <div style={{ fontSize: '0.78rem', color: '#1e1b4b', fontWeight: 600 }}>{m.label}</div>
                   </button>
                 ))}
               </div>
             </div>
 
-            {/* Step 2: guess partner's mood */}
-            {bothMoodSet && (
-              <div>
-                <h3 className="font-cute" style={{ color: '#4c1d95', textAlign: 'center', marginBottom: '0.3rem', fontSize: '1.1rem' }}>
-                  {bothGuessSet
-                    ? `✅ You guessed! Waiting for ${opponentName || 'partner'}...`
-                    : `Step 2: Guess ${opponentName || 'partner'}'s mood! 🤔`}
-                </h3>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '0.5rem' }}>
-                  {MOODS.map((m, i) => (
-                    <button
-                      key={i}
-                      onClick={() => setMyGuess(i)}
-                      disabled={bothGuessSet}
-                      style={{
-                        padding: '0.6rem 0.3rem', borderRadius: '12px', border: 'none', cursor: bothGuessSet ? 'default' : 'pointer',
-                        background: myGuess === i ? 'linear-gradient(135deg,#ec4899,#f472b6)' : '#fdf2f8',
-                        color: myGuess === i ? '#fff' : '#9d174d', fontSize: '1.3rem',
-                        transition: 'all 0.2s', transform: myGuess === i ? 'scale(1.08)' : 'scale(1)',
-                        boxShadow: myGuess === i ? '0 4px 12px rgba(236,72,153,0.3)' : 'none',
-                        opacity: bothGuessSet && myGuess !== i ? 0.4 : 1,
-                      }}
-                    >
-                      {m.emoji}
-                      <div style={{ fontSize: '0.62rem', marginTop: '2px', fontFamily: 'var(--font-cute)' }}>{m.label}</div>
-                    </button>
-                  ))}
-                </div>
+            {/* Step 2: Guess Partner's Mood */}
+            <div>
+              <h3 style={{ fontSize: '1.05rem', color: '#ec4899', marginBottom: '0.6rem', fontFamily: 'var(--font-cute)', textAlign: 'center' }}>
+                2️⃣ Guess {opponentName || 'Partner'}'s mood:
+              </h3>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '0.6rem' }}>
+                {MOODS.map((m, idx) => (
+                  <button
+                    key={idx}
+                    onClick={() => setMyGuess(idx)}
+                    disabled={myGuess !== null}
+                    style={{
+                      background: myGuess === idx ? '#fce7f3' : '#ffffff',
+                      border: myGuess === idx ? '2.5px solid #ec4899' : '1.5px solid #ddd6fe',
+                      borderRadius: '14px',
+                      padding: '0.8rem 0.4rem',
+                      textAlign: 'center',
+                      cursor: myGuess === null ? 'pointer' : 'default'
+                    }}
+                  >
+                    <div style={{ fontSize: '1.8rem' }}>{m.emoji}</div>
+                    <div style={{ fontSize: '0.78rem', color: '#1e1b4b', fontWeight: 600 }}>{m.label}</div>
+                  </button>
+                ))}
               </div>
-            )}
-
-            {!bothMoodSet && (
-              <p style={{ textAlign: 'center', color: '#a78bfa', fontSize: '0.82rem', marginTop: '0.5rem' }}>
-                Your partner can't see your picks until reveal! 🙈
-              </p>
-            )}
+            </div>
           </div>
         )}
 
-        {/* Result phase */}
-        {!gameOver && state.phase === 'result' && (
-          <div style={{ animation: 'pop-in 0.5s ease' }}>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.8rem', marginBottom: '1.2rem' }}>
-              {[
-                { label: 'You were', mood: myMood, guess: theirGuess, guesserName: opponentName || 'Partner', color: '#7c3aed' },
-                { label: `${opponentName || 'Partner'} was`, mood: theirMood, guess: myGuess, guesserName: 'You', color: '#ec4899' },
-              ].map(({ label, mood, guess, guesserName, color }) => {
-                const correct = mood === guess;
-                return (
-                  <div key={label} style={{ background: correct ? '#f0fdf4' : '#fff', border: `2px solid ${correct ? '#86efac' : '#e5e7eb'}`, borderRadius: '16px', padding: '1rem', textAlign: 'center' }}>
-                    <div style={{ fontSize: '0.75rem', color: '#6b7280', marginBottom: '0.3rem' }}>{label}…</div>
-                    <div style={{ fontSize: '2.5rem' }}>{mood !== null ? MOODS[mood].emoji : '?'}</div>
-                    <div style={{ fontSize: '0.8rem', color, fontWeight: 700 }}>{mood !== null ? MOODS[mood].label : '—'}</div>
-                    <div style={{ marginTop: '0.5rem', fontSize: '0.72rem', color: '#6b7280' }}>{guesserName} guessed:</div>
-                    <div style={{ fontSize: '1.8rem' }}>{guess !== null ? MOODS[guess].emoji : '?'}</div>
-                    <div style={{ fontSize: '1.2rem', marginTop: '0.2rem' }}>{correct ? '✅ Correct! +1' : '❌ Wrong!'}</div>
-                  </div>
-                );
-              })}
+        {/* RESULT PHASE */}
+        {state.phase === 'result' && (
+          <div style={{ textAlign: 'center', padding: '1rem 0' }}>
+            <div style={{
+              display: 'grid',
+              gridTemplateColumns: '1fr 1fr',
+              gap: '1rem',
+              background: '#ffffff',
+              padding: '1.2rem',
+              borderRadius: '18px',
+              border: '2px solid #ddd6fe',
+              marginBottom: '1.5rem'
+            }}>
+              <div>
+                <div style={{ fontSize: '0.8rem', color: '#7c3aed', fontWeight: 700, marginBottom: '0.3rem' }}>Your Actual Mood</div>
+                <div style={{ fontSize: '2.5rem' }}>{MOODS[myMood!].emoji}</div>
+                <div style={{ fontSize: '0.85rem', color: '#6b7280' }}>Guessed by partner: {MOODS[theirGuess!].emoji}</div>
+              </div>
+
+              <div>
+                <div style={{ fontSize: '0.8rem', color: '#ec4899', fontWeight: 700, marginBottom: '0.3rem' }}>{opponentName || 'Partner'}'s Mood</div>
+                <div style={{ fontSize: '2.5rem' }}>{MOODS[theirMood!].emoji}</div>
+                <div style={{ fontSize: '0.85rem', color: '#6b7280' }}>Guessed by you: {MOODS[myGuess!].emoji}</div>
+              </div>
             </div>
-            {role === 'host' ? (
-              <div style={{ textAlign: 'center' }}>
-                <button onClick={nextRound} className="btn-cute btn-cute-primary">
-                  {state.round >= MAX_ROUNDS ? 'See Final Results 🪞' : 'Next Round ➡️'}
+
+            {role === 'host' && (
+              <div style={{ display: 'flex', gap: '0.8rem', justifyContent: 'center' }}>
+                <button onClick={nextRound} className="btn-cute btn-cute-primary" style={{ padding: '0.65rem 1.6rem' }}>
+                  Next Round ➔
+                </button>
+                <button onClick={resetAll} className="btn-cute btn-cute-secondary" style={{ padding: '0.65rem 1rem' }}>
+                  <RefreshCw size={16} /> Reset
                 </button>
               </div>
-            ) : (
-              <p style={{ textAlign: 'center', color: '#8b5cf6', fontSize: '0.9rem' }}>Waiting for host to continue...</p>
+            )}
+            {role === 'guest' && (
+              <div style={{ color: '#6b7280', fontSize: '0.85rem' }}>Waiting for host to continue...</div>
             )}
           </div>
         )}

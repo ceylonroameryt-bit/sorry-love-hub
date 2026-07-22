@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useGamePeer } from '../utils/peerConnection';
-import { ArrowLeft, RefreshCw, Heart, Zap } from 'lucide-react';
+import { RefreshCw, Zap } from 'lucide-react';
+import { GameHeader } from './GameHeader';
 
 const PHRASES = [
   "The quick brown fox jumps over the lazy dog 🦊",
@@ -20,9 +21,19 @@ const PHRASES = [
   "Life is a beautiful journey and you are my compass 🧭",
 ];
 
+function shuffle<T>(arr: T[]): T[] {
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
 interface TypeState {
   phase: 'idle' | 'countdown' | 'racing' | 'done';
   phraseIndex: number;
+  phraseOrder: number[];
   startTime: number;
   hostWpm: number | null;
   guestWpm: number | null;
@@ -31,22 +42,34 @@ interface TypeState {
   round: number;
 }
 
-const INITIAL: TypeState = {
-  phase: 'idle',
-  phraseIndex: 0,
-  startTime: 0,
-  hostWpm: null,
-  guestWpm: null,
-  hostScore: 0,
-  guestScore: 0,
-  round: 1,
-};
-
 const MAX_ROUNDS = 3;
 
+function makeInitial(): TypeState {
+  const order = shuffle(PHRASES.map((_, i) => i));
+  return {
+    phase: 'idle',
+    phraseIndex: 0,
+    phraseOrder: order.slice(0, MAX_ROUNDS),
+    startTime: 0,
+    hostWpm: null,
+    guestWpm: null,
+    hostScore: 0,
+    guestScore: 0,
+    round: 1,
+  };
+}
+
 export const EmojiTyperace: React.FC = () => {
-  const { role, sendGameAction, gameState, selectGame, opponentName } = useGamePeer();
-  const state: TypeState = gameState ?? INITIAL;
+  const { role, sendGameAction, gameState, opponentName } = useGamePeer();
+
+  // Host auto-initialization for fresh shuffled phrases
+  useEffect(() => {
+    if (role === 'host' && (!gameState || !gameState.phraseOrder)) {
+      sendGameAction(makeInitial());
+    }
+  }, [role, gameState, sendGameAction]);
+
+  const state: TypeState = gameState ?? makeInitial();
   const stateRef = useRef(state);
   useEffect(() => { stateRef.current = state; }, [state]);
 
@@ -54,198 +77,235 @@ export const EmojiTyperace: React.FC = () => {
   const [countdown, setCountdown] = useState(3);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const phrase = PHRASES[state.phraseIndex % PHRASES.length];
+  const phraseOrder = state.phraseOrder ?? PHRASES.map((_, i) => i).slice(0, MAX_ROUNDS);
+  const currentPhraseIdx = phraseOrder[state.phraseIndex % phraseOrder.length] ?? 0;
+  const phrase = PHRASES[currentPhraseIdx];
+
   const myWpm = role === 'host' ? state.hostWpm : state.guestWpm;
-  const theirWpm = role === 'host' ? state.guestWpm : state.hostWpm;
+
+  // Countdown timer
+  useEffect(() => {
+    if (state.phase !== 'countdown') return;
+    setCountdown(3);
+    const interval = setInterval(() => {
+      setCountdown(c => {
+        if (c <= 1) {
+          clearInterval(interval);
+          if (role === 'host') {
+            sendGameAction({
+              ...stateRef.current,
+              phase: 'racing',
+              startTime: Date.now(),
+            });
+          }
+          return 0;
+        }
+        return c - 1;
+      });
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [state.phase, role, sendGameAction]);
 
   useEffect(() => {
-    if (state.phase === 'countdown') {
-      setCountdown(3);
-      setTyped('');
-      const t = setInterval(() => {
-        setCountdown(c => {
-          if (c <= 1) {
-            clearInterval(t);
-            sendGameAction({ ...stateRef.current, phase: 'racing', startTime: Date.now() });
-            return 0;
-          }
-          return c - 1;
-        });
-      }, 1000);
-      return () => clearInterval(t);
-    }
     if (state.phase === 'racing') {
       setTyped('');
       setTimeout(() => inputRef.current?.focus(), 100);
     }
-  }, [state.phase, state.round]);
+  }, [state.phase]);
 
-  const handleType = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (state.phase !== 'racing' || myWpm !== null) return;
-    const val = e.target.value;
-    setTyped(val);
-    if (val === phrase) {
-      const elapsed = (Date.now() - state.startTime) / 1000 / 60;
-      const wordCount = phrase.split(' ').length;
-      const wpm = Math.round(wordCount / elapsed);
-      const s = stateRef.current;
-      const nextState = { ...s };
-      if (role === 'host') nextState.hostWpm = wpm;
-      else nextState.guestWpm = wpm;
-
-      if (nextState.hostWpm !== null && nextState.guestWpm !== null) {
-        const done = s.round >= MAX_ROUNDS;
-        if (!done) {
-          if (nextState.hostWpm > nextState.guestWpm) nextState.hostScore += 1;
-          else if (nextState.guestWpm > nextState.hostWpm) nextState.guestScore += 1;
-        }
-        nextState.phase = done ? 'done' : 'done';
-        // Award score for this round
-        if (nextState.hostWpm > nextState.guestWpm) nextState.hostScore = s.hostScore + 1;
-        else if (nextState.guestWpm > nextState.hostWpm) nextState.guestScore = s.guestScore + 1;
-        nextState.phase = 'done';
-      }
-      sendGameAction(nextState);
-    }
+  const startRace = () => {
+    if (role !== 'host') return;
+    setTyped('');
+    sendGameAction({
+      ...state,
+      phase: 'countdown',
+      hostWpm: null,
+      guestWpm: null,
+    });
   };
 
-  const startRound = () => {
-    if (role !== 'host') return;
-    sendGameAction({ ...state, phase: 'countdown', phraseIndex: Math.floor(Math.random() * PHRASES.length), hostWpm: null, guestWpm: null });
+  const handleTyping = (val: string) => {
+    setTyped(val);
+    if (val === phrase && myWpm === null && state.phase === 'racing') {
+      const elapsedSec = Math.max((Date.now() - state.startTime) / 1000, 0.5);
+      const wordCount = phrase.split(' ').length;
+      const calculatedWpm = Math.round((wordCount / elapsedSec) * 60);
+
+      const ns = { ...stateRef.current };
+      if (role === 'host') ns.hostWpm = calculatedWpm;
+      else ns.guestWpm = calculatedWpm;
+
+      if (ns.hostWpm !== null && ns.guestWpm !== null) {
+        ns.phase = 'done';
+        if (ns.hostWpm > ns.guestWpm) ns.hostScore += 1;
+        else if (ns.guestWpm > ns.hostWpm) ns.guestScore += 1;
+      }
+      sendGameAction(ns);
+    }
   };
 
   const nextRound = () => {
     if (role !== 'host') return;
+    setTyped('');
     if (state.round >= MAX_ROUNDS) {
-      sendGameAction({ ...INITIAL });
+      sendGameAction(makeInitial());
     } else {
-      sendGameAction({ ...state, phase: 'countdown', round: state.round + 1, phraseIndex: Math.floor(Math.random() * PHRASES.length), hostWpm: null, guestWpm: null });
+      sendGameAction({
+        ...state,
+        phase: 'idle',
+        round: state.round + 1,
+        phraseIndex: state.phraseIndex + 1,
+        hostWpm: null,
+        guestWpm: null,
+      });
     }
   };
 
-  const resetGame = () => sendGameAction({ ...INITIAL });
-
-  const myScore = role === 'host' ? state.hostScore : state.guestScore;
-  const theirScore = role === 'host' ? state.guestScore : state.hostScore;
-  const iWon = (role === 'host' && state.hostScore > state.guestScore) || (role === 'guest' && state.guestScore > state.hostScore);
-
+  const resetAll = () => {
+    setTyped('');
+    sendGameAction(makeInitial());
+  };
 
 
   return (
-    <div className="container-cute" style={{ maxWidth: '700px' }}>
+    <div className="game-container-responsive">
+      <GameHeader
+        title="Emoji Typerace"
+        emoji="⌨️"
+        instructions={[
+          "Host starts the 3-second countdown timer.",
+          "Type the displayed romantic quote as fast and accurately as possible!",
+          "Highest WPM (Words Per Minute) wins the round point!"
+        ]}
+      />
+
       <div className="card-cute" style={{ background: '#faf5ff', border: '1.5px solid #ddd6fe' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
-          <button onClick={() => selectGame(null)} className="btn-cute btn-cute-secondary" style={{ padding: '0.4rem 0.9rem', fontSize: '0.85rem' }}>
-            <ArrowLeft size={15} /> Back
-          </button>
-          <span className="badge-cute">Emoji Typerace ⌨️</span>
-          <button onClick={resetGame} className="btn-cute btn-cute-secondary" style={{ padding: '0.4rem 0.9rem', fontSize: '0.85rem' }}>
-            <RefreshCw size={14} />
-          </button>
-        </div>
-
-        {/* Scoreboard */}
-        <div style={{ display: 'flex', justifyContent: 'space-around', alignItems: 'center', background: '#fff', borderRadius: '14px', padding: '0.8rem 1rem', border: '1px solid #ede9fe', marginBottom: '1.5rem' }}>
-          <div style={{ textAlign: 'center' }}>
-            <div style={{ fontSize: '0.75rem', color: '#6b7280' }}>You</div>
-            <div className="font-cute" style={{ fontSize: '1.8rem', color: '#7c3aed' }}>{myScore}</div>
-          </div>
-          <div style={{ textAlign: 'center', fontSize: '0.75rem', color: '#9ca3af' }}>Round {state.round}/{MAX_ROUNDS}</div>
-          <div style={{ textAlign: 'center' }}>
-            <div style={{ fontSize: '0.75rem', color: '#6b7280' }}>{opponentName || 'Partner'}</div>
-            <div className="font-cute" style={{ fontSize: '1.8rem', color: '#8b5cf6' }}>{theirScore}</div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.2rem', flexWrap: 'wrap', gap: '0.4rem' }}>
+          <span className="badge-cute" style={{ background: '#ede9fe', color: '#6d28d9' }}>
+            Round {state.round} of {MAX_ROUNDS}
+          </span>
+          <div style={{ display: 'flex', gap: '1rem', fontFamily: 'var(--font-world)', fontSize: '0.95rem' }}>
+            <span style={{ color: '#7c3aed' }}>Host: {state.hostScore}</span>
+            <span style={{ color: '#ec4899' }}>Guest: {state.guestScore}</span>
           </div>
         </div>
 
-        {/* IDLE */}
+        {/* IDLE PHASE */}
         {state.phase === 'idle' && (
-          <div style={{ textAlign: 'center', padding: '2rem 0' }}>
-            <div style={{ fontSize: '4rem', marginBottom: '1rem', animation: 'float 2s ease infinite' }}>⌨️</div>
-            <h2 className="font-cute" style={{ fontSize: '1.8rem', color: '#4c1d95', marginBottom: '1rem' }}>Emoji Typerace!</h2>
-            <p style={{ color: '#6b7280', marginBottom: '2rem', fontSize: '0.95rem' }}>
-              Type the phrase exactly as shown — fastest WPM wins the round!<br />
-              Best of {MAX_ROUNDS} rounds.
+          <div style={{ textAlign: 'center', padding: '1.5rem 0' }}>
+            <div style={{ fontSize: '3.5rem', marginBottom: '1rem', animation: 'float 2.5s ease infinite' }}>⌨️⚡</div>
+            <h3 className="heading-lg" style={{ fontSize: '1.4rem', color: '#059669', marginBottom: '0.6rem' }}>
+              Ready to Typerace?
+            </h3>
+            <p style={{ color: '#6b7280', marginBottom: '1.5rem', fontSize: '0.95rem' }}>
+              {role === 'host' ? 'Click Start Race to trigger the 3-second countdown for both players!' : `Waiting for ${opponentName || 'host'} to start the race...`}
             </p>
-            {role === 'host' ? (
-              <button onClick={startRound} className="btn-cute btn-cute-primary" style={{ background: 'linear-gradient(135deg,#7c3aed,#8b5cf6)', padding: '1rem 2.5rem' }}>
-                Start! ⌨️
+            {role === 'host' && (
+              <button onClick={startRace} className="btn-cute btn-cute-primary" style={{ padding: '0.75rem 1.8rem', background: '#059669', borderColor: '#059669' }}>
+                <Zap size={18} /> Start Race!
               </button>
-            ) : (
-              <p style={{ color: '#8b5cf6' }}>Waiting for host to start...</p>
             )}
           </div>
         )}
 
-        {/* COUNTDOWN */}
+        {/* COUNTDOWN PHASE */}
         {state.phase === 'countdown' && (
-          <div style={{ textAlign: 'center', padding: '3rem 0' }}>
-            <div className="font-cute" style={{ fontSize: '6rem', color: '#7c3aed', animation: 'pop-in 0.3s ease' }}>{countdown}</div>
-            <p style={{ color: '#6b7280' }}>Get ready to type!</p>
+          <div style={{ textAlign: 'center', padding: '2.5rem 0' }}>
+            <div style={{ fontSize: '5rem', fontWeight: 900, color: '#059669', animation: 'pulse-gentle 0.5s infinite', fontFamily: 'var(--font-world)' }}>
+              {countdown}
+            </div>
+            <p style={{ color: '#6b7280', fontWeight: 600, fontSize: '1.1rem' }}>Get your fingers ready...</p>
           </div>
         )}
 
-        {/* RACING */}
+        {/* RACING PHASE */}
         {state.phase === 'racing' && (
           <div>
-            <div style={{ background: '#fff', border: '2px solid #ddd6fe', borderRadius: '16px', padding: '1.5rem', marginBottom: '1.2rem', fontFamily: 'monospace', fontSize: '1.1rem', lineHeight: 2, letterSpacing: '0.03em' }}>
-              {phrase.split('').map((char, i) => (
-                <span key={i} style={{ color: i < typed.length ? (typed[i] === char ? '#7c3aed' : '#dc2626') : '#c4b5fd', borderBottom: i === typed.length ? '2px solid #7c3aed' : 'none', transition: 'color 0.1s' }}>
-                  {char}
-                </span>
-              ))}
+            <div style={{
+              background: '#ffffff',
+              border: '2px solid #059669',
+              borderRadius: '18px',
+              padding: '1.2rem',
+              textAlign: 'center',
+              marginBottom: '1.2rem',
+              boxShadow: '0 4px 14px rgba(5,150,105,0.08)'
+            }}>
+              <span style={{ fontSize: '0.8rem', color: '#059669', fontWeight: 700, textTransform: 'uppercase', display: 'block', marginBottom: '0.4rem' }}>
+                TYPE THIS PHRASE:
+              </span>
+              <p style={{ fontSize: '1.15rem', color: '#1e1b4b', fontWeight: 700, margin: 0, fontFamily: 'monospace' }}>
+                {phrase}
+              </p>
             </div>
-            {myWpm === null ? (
-              <input ref={inputRef} value={typed} onChange={handleType} placeholder="Start typing here..."
-                className="input-cute"
-                style={{ width: '100%', fontSize: '1rem', fontFamily: 'monospace', letterSpacing: '0.03em', border: typed.length > 0 && typed !== phrase.slice(0, typed.length) ? '2px solid #fca5a5' : '2px solid #ddd6fe' }} />
-            ) : (
-              <div style={{ textAlign: 'center', padding: '1rem', background: '#ecfdf5', borderRadius: '14px', color: '#047857', fontWeight: 700, animation: 'pop-in 0.3s ease' }}>
-                ✅ Done! {myWpm} WPM — Waiting for {opponentName || 'partner'}...
-                <Heart size={14} color="#7c3aed" fill="#7c3aed" style={{ marginLeft: '6px', animation: 'pulse-gentle 1s infinite' }} />
-              </div>
-            )}
-            {typed.length > 0 && (
-              <div style={{ marginTop: '0.5rem', fontSize: '0.8rem', color: '#6b7280' }}>
-                Progress: {Math.round((typed.length / phrase.length) * 100)}% • Errors: {typed.split('').filter((c, i) => c !== phrase[i]).length}
-              </div>
-            )}
+
+            <input
+              ref={inputRef}
+              className="input-cute"
+              placeholder="Start typing exact phrase here..."
+              value={typed}
+              onChange={e => handleTyping(e.target.value)}
+              disabled={myWpm !== null}
+              style={{
+                fontSize: '1rem',
+                padding: '0.85rem',
+                borderRadius: '14px',
+                borderColor: typed === phrase ? '#059669' : '#ddd6fe',
+                background: typed === phrase ? '#dcfce7' : '#ffffff',
+                marginBottom: '1rem'
+              }}
+            />
+
+            <div style={{ textAlign: 'center', minHeight: '36px' }}>
+              {myWpm !== null ? (
+                <div style={{ color: '#059669', fontWeight: 700, fontSize: '1rem' }}>
+                  ✅ Finished! Your speed: <strong>{myWpm} WPM</strong>. Waiting for {opponentName || 'partner'}...
+                </div>
+              ) : (
+                <div style={{ color: '#6b7280', fontSize: '0.88rem' }}>Race in progress! Type fast!</div>
+              )}
+            </div>
           </div>
         )}
 
-        {/* DONE / RESULT */}
+        {/* DONE PHASE */}
         {state.phase === 'done' && (
-          <div style={{ textAlign: 'center', animation: 'pop-in 0.4s ease' }}>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1.5rem' }}>
-              {[{ label: 'You', wpm: myWpm }, { label: opponentName || 'Partner', wpm: theirWpm }].map(({ label, wpm }) => (
-                <div key={label} style={{ background: '#fff', border: '2px solid #ddd6fe', borderRadius: '18px', padding: '1rem', textAlign: 'center' }}>
-                  <div style={{ fontSize: '0.8rem', color: '#6b7280' }}>{label}</div>
-                  <div className="font-cute" style={{ fontSize: '1.8rem', color: '#7c3aed' }}>{wpm ?? '—'}</div>
-                  <div style={{ fontSize: '0.75rem', color: '#9ca3af' }}>WPM</div>
-                  {myWpm !== null && theirWpm !== null && (
-                    <div style={{ fontSize: '1.2rem', marginTop: '4px' }}>
-                      {((label === 'You' && myWpm >= theirWpm) || (label !== 'You' && theirWpm >= myWpm)) && myWpm !== theirWpm ? '🏆' : myWpm === theirWpm ? '🤝' : '🥈'}
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
-
-            {state.round < MAX_ROUNDS ? (
-              role === 'host' ? (
-                <button onClick={nextRound} className="btn-cute btn-cute-primary" style={{ background: 'linear-gradient(135deg,#7c3aed,#8b5cf6)', marginBottom: '1rem' }}>
-                  <Zap size={15} /> Next Round ➡️
-                </button>
-              ) : <p style={{ color: '#8b5cf6', marginBottom: '1rem' }}>Waiting for host to continue...</p>
-            ) : (
+          <div style={{ textAlign: 'center', padding: '1rem 0' }}>
+            <div style={{
+              display: 'flex',
+              justifyContent: 'center',
+              gap: '1.5rem',
+              background: '#ffffff',
+              padding: '1.2rem',
+              borderRadius: '18px',
+              border: '2px solid #ddd6fe',
+              marginBottom: '1.5rem'
+            }}>
               <div>
-                <div className="font-cute" style={{ fontSize: '1.5rem', color: '#4c1d95', marginBottom: '1rem' }}>
-                  {myScore === theirScore ? '🤝 Perfect Tie!' : iWon ? '🏆 You Won!' : `👑 ${opponentName || 'Partner'} Won!`}
-                </div>
-                <div style={{ display: 'flex', gap: '1rem', justifyContent: 'center' }}>
-                  <button onClick={resetGame} className="btn-cute btn-cute-primary" style={{ background: 'linear-gradient(135deg,#7c3aed,#8b5cf6)' }}>Play Again</button>
-                  <button onClick={() => selectGame(null)} className="btn-cute btn-cute-secondary">Back to Lobby</button>
+                <div style={{ fontSize: '0.8rem', color: '#7c3aed', fontWeight: 700 }}>👑 Host Speed</div>
+                <div style={{ fontSize: '1.8rem', fontWeight: 900, color: '#7c3aed', fontFamily: 'var(--font-world)' }}>
+                  {state.hostWpm} <span style={{ fontSize: '0.9rem' }}>WPM</span>
                 </div>
               </div>
+              <div>
+                <div style={{ fontSize: '0.8rem', color: '#ec4899', fontWeight: 700 }}>🌸 Guest Speed</div>
+                <div style={{ fontSize: '1.8rem', fontWeight: 900, color: '#ec4899', fontFamily: 'var(--font-world)' }}>
+                  {state.guestWpm} <span style={{ fontSize: '0.9rem' }}>WPM</span>
+                </div>
+              </div>
+            </div>
+
+            {role === 'host' && (
+              <div style={{ display: 'flex', gap: '0.8rem', justifyContent: 'center' }}>
+                <button onClick={nextRound} className="btn-cute btn-cute-primary" style={{ padding: '0.65rem 1.6rem', background: '#059669', borderColor: '#059669' }}>
+                  Next Race ➔
+                </button>
+                <button onClick={resetAll} className="btn-cute btn-cute-secondary" style={{ padding: '0.65rem 1rem' }}>
+                  <RefreshCw size={16} /> Reset
+                </button>
+              </div>
+            )}
+            {role === 'guest' && (
+              <div style={{ color: '#6b7280', fontSize: '0.85rem' }}>Waiting for host to continue...</div>
             )}
           </div>
         )}

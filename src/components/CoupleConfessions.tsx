@@ -1,6 +1,7 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { useGamePeer } from '../utils/peerConnection';
-import { ArrowLeft, RefreshCw, Award, Heart, Check, X } from 'lucide-react';
+import { RefreshCw, Heart } from 'lucide-react';
+import { GameHeader } from './GameHeader';
 
 const QUESTIONS = [
   { a: "Cries at movies 🎬", b: "Never cries at movies 😎" },
@@ -24,7 +25,8 @@ interface ConfState {
   phase: 'voting' | 'reveal' | 'ended';
   round: number;
   qIndex: number;
-  hostVote: 'a' | 'b' | null; // Host says: A describes host, B describes guest (or which fits whom)
+  qOrder: number[];
+  hostVote: 'a' | 'b' | null;
   guestVote: 'a' | 'b' | null;
   matches: number;
 }
@@ -32,20 +34,38 @@ interface ConfState {
 const ROUNDS = 8;
 
 function makeInitial(): ConfState {
-  const indices: number[] = [];
   const pool = [...Array(QUESTIONS.length).keys()];
-  while (indices.length < ROUNDS) {
-    const i = Math.floor(Math.random() * pool.length);
-    indices.push(pool.splice(i, 1)[0]);
+  for (let i = pool.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [pool[i], pool[j]] = [pool[j], pool[i]];
   }
-  return { phase: 'voting', round: 1, qIndex: indices[0], hostVote: null, guestVote: null, matches: 0 };
+  return {
+    phase: 'voting',
+    round: 1,
+    qIndex: 0,
+    qOrder: pool.slice(0, ROUNDS),
+    hostVote: null,
+    guestVote: null,
+    matches: 0
+  };
 }
 
 export const CoupleConfessions: React.FC = () => {
-  const { role, sendGameAction, gameState, selectGame, opponentName } = useGamePeer();
+  const { role, sendGameAction, gameState, opponentName } = useGamePeer();
+
+  // Host auto-initialization for fresh shuffled questions
+  useEffect(() => {
+    if (role === 'host' && (!gameState || !gameState.qOrder)) {
+      sendGameAction(makeInitial());
+    }
+  }, [role, gameState, sendGameAction]);
+
   const state: ConfState = gameState ?? makeInitial();
 
-  const q = QUESTIONS[state.qIndex % QUESTIONS.length];
+  const qOrder = state.qOrder ?? [...Array(QUESTIONS.length).keys()].slice(0, ROUNDS);
+  const currentIdx = qOrder[state.qIndex % qOrder.length] ?? 0;
+  const q = QUESTIONS[currentIdx];
+
   const myVote = role === 'host' ? state.hostVote : state.guestVote;
   const theirVote = role === 'host' ? state.guestVote : state.hostVote;
 
@@ -54,10 +74,8 @@ export const CoupleConfessions: React.FC = () => {
     const ns = { ...state };
     if (role === 'host') ns.hostVote = vote;
     else ns.guestVote = vote;
-    // If both voted, go to reveal
     if (ns.hostVote && ns.guestVote) {
       ns.phase = 'reveal';
-      // They match if they both voted the same letter (same person)
       if (ns.hostVote === ns.guestVote) ns.matches += 1;
     }
     sendGameAction(ns);
@@ -65,104 +83,148 @@ export const CoupleConfessions: React.FC = () => {
 
   const next = () => {
     if (role !== 'host') return;
-    if (state.round >= ROUNDS) { sendGameAction({ ...state, phase: 'ended' }); return; }
-    const nextIdx = (state.qIndex + Math.floor(Math.random() * 3) + 1) % QUESTIONS.length;
-    sendGameAction({ ...state, phase: 'voting', round: state.round + 1, qIndex: nextIdx, hostVote: null, guestVote: null });
+    if (state.round >= ROUNDS) {
+      sendGameAction({ ...state, phase: 'ended' });
+      return;
+    }
+    sendGameAction({
+      ...state,
+      phase: 'voting',
+      round: state.round + 1,
+      qIndex: state.qIndex + 1,
+      hostVote: null,
+      guestVote: null,
+    });
   };
 
   const reset = () => sendGameAction(makeInitial());
-  const matchPct = Math.round((state.matches / Math.max(state.round - (state.phase === 'voting' ? 1 : 0), 1)) * 100);
 
   return (
-    <div className="container-cute" style={{ maxWidth: '660px' }}>
+    <div className="game-container-responsive">
+      <GameHeader
+        title="Couple Confessions"
+        emoji="🤭"
+        instructions={[
+          "Read two contrasting habits or confessions.",
+          "Secretly pick which option describes the situation best!",
+          "If both of you choose the same option, you earn a Sync Match point!"
+        ]}
+      />
+
       <div className="card-cute" style={{ background: '#faf5ff', border: '1.5px solid #ddd6fe' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
-          <button onClick={() => selectGame(null)} className="btn-cute btn-cute-secondary" style={{ padding: '0.4rem 0.9rem', fontSize: '0.85rem' }}>
-            <ArrowLeft size={15} /> Back
-          </button>
-          <span className="badge-cute">Couple Confessions 🤭</span>
-          <button onClick={reset} className="btn-cute btn-cute-secondary" style={{ padding: '0.4rem 0.9rem', fontSize: '0.85rem' }}><RefreshCw size={14} /></button>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.2rem', flexWrap: 'wrap', gap: '0.4rem' }}>
+          <span className="badge-cute" style={{ background: '#ede9fe', color: '#6d28d9' }}>
+            Confession {state.round} of {ROUNDS}
+          </span>
+          <span className="badge-cute" style={{ background: '#fce7f3', color: '#db2777' }}>
+            <Heart size={14} fill="#db2777" /> Matches: {state.matches}
+          </span>
         </div>
 
-        {/* Agreement meter */}
-        <div style={{ background: '#fff', borderRadius: '14px', padding: '0.8rem 1.2rem', border: '1px solid #ede9fe', marginBottom: '1.5rem' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', color: '#6b7280', marginBottom: '4px' }}>
-            <span>Round {state.round}/{ROUNDS}</span>
-            <span>Agreement: {matchPct}% 🤭</span>
-          </div>
-          <div style={{ height: '8px', background: '#f5f3ff', borderRadius: '99px', overflow: 'hidden' }}>
-            <div style={{ height: '100%', width: `${matchPct}%`, background: 'linear-gradient(to right, #a78bfa, #ec4899)', borderRadius: '99px', transition: 'width 0.4s' }} />
-          </div>
-        </div>
-
-        <div style={{ textAlign: 'center', background: '#fff7ed', border: '1px solid #fed7aa', borderRadius: '12px', padding: '0.6rem', marginBottom: '1.2rem', fontSize: '0.82rem', color: '#7c2d12' }}>
-          Both secretly pick which option describes <strong>the same person</strong>. Agree = point! 🎯
-        </div>
-
-        {state.phase === 'voting' && (
-          <div style={{ textAlign: 'center' }}>
-            <h3 className="font-cute" style={{ fontSize: '1.3rem', color: '#4c1d95', marginBottom: '0.5rem' }}>Which one of you is this? 🤔</h3>
-            <p style={{ color: '#6b7280', fontSize: '0.85rem', marginBottom: '1.5rem' }}>Pick which statement fits <em>you</em> — your partner guesses too!</p>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-              {[
-                { vote: 'a' as const, text: q.a },
-                { vote: 'b' as const, text: q.b },
-              ].map(({ vote, text }) => (
-                <button key={vote} onClick={() => handleVote(vote)} disabled={myVote !== null} className="btn-cute"
-                  style={{ padding: '1.1rem', fontSize: '1rem', fontWeight: 700, justifyContent: 'center', background: myVote === vote ? '#f5f3ff' : '#fff', border: `2px solid ${myVote === vote ? '#7c3aed' : '#ddd6fe'}`, color: '#4c1d95', transition: 'all 0.2s', whiteSpace: 'normal' }}>
-                  {text}
-                </button>
-              ))}
-            </div>
-            {myVote && (
-              <p style={{ marginTop: '1rem', color: '#8b5cf6', fontSize: '0.9rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '5px' }}>
-                Waiting for {opponentName || 'partner'}...
-                <Heart size={14} color="#7c3aed" fill="#7c3aed" style={{ animation: 'pulse-gentle 1s infinite' }} />
-              </p>
+        {/* Ended Phase */}
+        {state.phase === 'ended' && (
+          <div style={{ textAlign: 'center', padding: '2rem 1rem' }}>
+            <div style={{ fontSize: '4rem', marginBottom: '0.5rem' }}>🤭💖</div>
+            <h2 className="heading-lg" style={{ color: '#db2777', marginBottom: '0.5rem' }}>
+              Confessions Complete!
+            </h2>
+            <p style={{ color: '#6b7280', marginBottom: '1.5rem', fontSize: '1.1rem' }}>
+              You matched on <strong>{state.matches} out of {ROUNDS}</strong> confessions!
+            </p>
+            {role === 'host' && (
+              <button onClick={reset} className="btn-cute btn-cute-primary" style={{ padding: '0.7rem 1.8rem', background: '#db2777', borderColor: '#db2777' }}>
+                <RefreshCw size={18} /> Play Again
+              </button>
             )}
           </div>
         )}
 
-        {state.phase === 'reveal' && (
-          <div style={{ textAlign: 'center', animation: 'pop-in 0.4s ease' }}>
-            <h3 className="font-cute" style={{ fontSize: '1.3rem', color: '#4c1d95', marginBottom: '1.2rem' }}>What did you both pick? 👀</h3>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1.2rem' }}>
-              {[
-                { label: 'You picked', vote: myVote },
-                { label: `${opponentName || 'Partner'} picked`, vote: theirVote },
-              ].map(({ label, vote: v }) => (
-                <div key={label} style={{ background: '#f5f3ff', border: '2px solid #ddd6fe', borderRadius: '18px', padding: '1rem' }}>
-                  <div style={{ fontSize: '0.78rem', color: '#7c3aed', fontWeight: 700, marginBottom: '0.4rem' }}>{label}</div>
-                  <div style={{ fontSize: '0.95rem', color: '#4c1d95', fontWeight: 700, lineHeight: 1.3 }}>
-                    {v === 'a' ? q.a : v === 'b' ? q.b : '—'}
-                  </div>
-                </div>
-              ))}
-            </div>
-            <div style={{ fontSize: '1.1rem', fontWeight: 700, marginBottom: '1.5rem', color: myVote === theirVote ? '#059669' : '#ca8a04', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
-              {myVote === theirVote
-                ? <><Check color="#10b981" size={22} /> You agreed! +1 point each! 🎯</>
-                : <><X color="#ca8a04" size={22} /> Disagreed — different takes! 🌈</>}
-            </div>
-            {role === 'host' ? (
-              <button onClick={next} className="btn-cute btn-cute-primary" style={{ background: 'linear-gradient(135deg,#7c3aed,#8b5cf6)' }}>
-                {state.round >= ROUNDS ? 'See Final Results' : 'Next Confession ➡️'}
-              </button>
-            ) : <p style={{ color: '#8b5cf6', fontSize: '0.9rem' }}>Waiting for host...</p>}
-          </div>
-        )}
+        {/* Voting or Reveal Phase */}
+        {state.phase !== 'ended' && (
+          <div>
+            <h3 style={{ textAlign: 'center', fontFamily: 'var(--font-world)', color: '#4c1d95', fontSize: '1.3rem', marginBottom: '1.2rem' }}>
+              Which describes your relationship best?
+            </h3>
 
-        {state.phase === 'ended' && (
-          <div style={{ textAlign: 'center', padding: '2rem 0', animation: 'pop-in 0.4s ease' }}>
-            <Award size={60} color="#7c3aed" style={{ margin: '0 auto 1rem', animation: 'float 3s ease infinite' }} />
-            <h2 className="font-cute" style={{ fontSize: '2rem', color: '#4c1d95', marginBottom: '0.5rem' }}>Confessions Complete! 🤭</h2>
-            <div style={{ fontSize: '1.1rem', color: '#374151', marginBottom: '2rem' }}>
-              You agreed on <strong style={{ color: '#7c3aed', fontSize: '1.4rem' }}>{state.matches}</strong>/{ROUNDS}!<br />
-              <span style={{ fontSize: '0.9rem', color: '#6b7280' }}>{matchPct >= 80 ? '🌟 You know each other so well!' : matchPct >= 60 ? '💕 Pretty good understanding!' : '😂 Surprises everywhere!'}</span>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1.5rem' }}>
+              {/* Option A */}
+              <button
+                onClick={() => handleVote('a')}
+                disabled={myVote !== null || state.phase !== 'voting'}
+                style={{
+                  background: myVote === 'a' ? '#f3e8ff' : '#ffffff',
+                  border: myVote === 'a' ? '2.5px solid #7c3aed' : '2px solid #ddd6fe',
+                  borderRadius: '18px',
+                  padding: '1.2rem 1rem',
+                  cursor: myVote === null && state.phase === 'voting' ? 'pointer' : 'default',
+                  transition: 'all 0.15s ease',
+                  textAlign: 'center',
+                  boxShadow: '0 4px 12px rgba(124,58,237,0.06)'
+                }}
+              >
+                <span style={{ fontSize: '1.05rem', color: '#1e1b4b', fontWeight: 600, fontFamily: 'var(--font-cute)' }}>
+                  {q.a}
+                </span>
+                {state.phase === 'reveal' && (
+                  <div style={{ marginTop: '0.8rem', fontSize: '0.8rem', fontWeight: 700, color: '#6d28d9' }}>
+                    {state.hostVote === 'a' && <span>👑 Host </span>}
+                    {state.guestVote === 'a' && <span>🌸 Guest</span>}
+                  </div>
+                )}
+              </button>
+
+              {/* Option B */}
+              <button
+                onClick={() => handleVote('b')}
+                disabled={myVote !== null || state.phase !== 'voting'}
+                style={{
+                  background: myVote === 'b' ? '#fce7f3' : '#ffffff',
+                  border: myVote === 'b' ? '2.5px solid #ec4899' : '2px solid #ddd6fe',
+                  borderRadius: '18px',
+                  padding: '1.2rem 1rem',
+                  cursor: myVote === null && state.phase === 'voting' ? 'pointer' : 'default',
+                  transition: 'all 0.15s ease',
+                  textAlign: 'center',
+                  boxShadow: '0 4px 12px rgba(236,72,153,0.06)'
+                }}
+              >
+                <span style={{ fontSize: '1.05rem', color: '#1e1b4b', fontWeight: 600, fontFamily: 'var(--font-cute)' }}>
+                  {q.b}
+                </span>
+                {state.phase === 'reveal' && (
+                  <div style={{ marginTop: '0.8rem', fontSize: '0.8rem', fontWeight: 700, color: '#db2777' }}>
+                    {state.hostVote === 'b' && <span>👑 Host </span>}
+                    {state.guestVote === 'b' && <span>🌸 Guest</span>}
+                  </div>
+                )}
+              </button>
             </div>
-            <div style={{ display: 'flex', gap: '1rem', justifyContent: 'center' }}>
-              <button onClick={reset} className="btn-cute btn-cute-primary" style={{ background: 'linear-gradient(135deg,#7c3aed,#8b5cf6)' }}>Play Again</button>
-              <button onClick={() => selectGame(null)} className="btn-cute btn-cute-secondary">Back to Lobby</button>
+
+            {/* Voting Status */}
+            <div style={{ textAlign: 'center', minHeight: '40px' }}>
+              {state.phase === 'voting' && (
+                <div style={{ color: myVote ? '#059669' : '#6b7280', fontSize: '0.95rem', fontWeight: 600 }}>
+                  {myVote
+                    ? (theirVote ? 'Both voted! Revealing...' : `Vote locked! Waiting for ${opponentName || 'partner'}... ⏳`)
+                    : 'Pick the option that fits best!'}
+                </div>
+              )}
+
+              {state.phase === 'reveal' && (
+                <div>
+                  <div style={{ fontSize: '1rem', fontWeight: 700, color: state.hostVote === state.guestVote ? '#059669' : '#db2777', marginBottom: '0.6rem' }}>
+                    {state.hostVote === state.guestVote ? '✨ You both agreed!' : '💭 You chose differently!'}
+                  </div>
+                  {role === 'host' && (
+                    <button onClick={next} className="btn-cute btn-cute-primary" style={{ padding: '0.5rem 1.4rem', background: '#db2777', borderColor: '#db2777' }}>
+                      Next Confession ➔
+                    </button>
+                  )}
+                  {role === 'guest' && (
+                    <div style={{ color: '#6b7280', fontSize: '0.85rem' }}>Waiting for host to continue...</div>
+                  )}
+                </div>
+              )}
             </div>
           </div>
         )}

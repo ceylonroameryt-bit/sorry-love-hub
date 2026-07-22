@@ -1,6 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import { useGamePeer } from '../utils/peerConnection';
-import { ArrowLeft, RefreshCw } from 'lucide-react';
+import { RefreshCw, Play, ArrowUp, ArrowDown, ArrowLeft, ArrowRight } from 'lucide-react';
+import { GameHeader } from './GameHeader';
 
 type Dir = 'UP' | 'DOWN' | 'LEFT' | 'RIGHT';
 interface Pt { x: number; y: number; }
@@ -33,7 +34,15 @@ const INITIAL = (): SnakeState => ({
 });
 
 export const SnakeDuelOnline: React.FC = () => {
-  const { role, sendGameAction, gameState, selectGame, opponentName, playerName } = useGamePeer();
+  const { role, sendGameAction, gameState, opponentName } = useGamePeer();
+
+  // Host auto-initialization
+  useEffect(() => {
+    if (role === 'host' && (!gameState || gameState.phase === undefined)) {
+      sendGameAction(INITIAL());
+    }
+  }, [role, gameState, sendGameAction]);
+
   const state: SnakeState = gameState ?? INITIAL();
   const stateRef = useRef(state);
 
@@ -41,288 +50,213 @@ export const SnakeDuelOnline: React.FC = () => {
     stateRef.current = state;
   }, [state]);
 
-  const mySnake = role === 'host' ? state.hostSnake : state.guestSnake;
   const myDir = role === 'host' ? state.hostDir : state.guestDir;
-  const theirDir = role === 'host' ? state.guestDir : state.hostDir;
-
-  const isMyChoiceSelected = myDir !== null;
-  const isTheirChoiceSelected = theirDir !== null;
 
   const handleDirSelect = (dir: Dir) => {
     if (state.phase !== 'playing' || myDir !== null) return;
 
-    // Check 180-degree turn block if snake size > 1
-    const head = mySnake[0];
-    const neck = mySnake[1];
-    if (neck) {
-      let nextX = head.x;
-      let nextY = head.y;
-      if (dir === 'UP') nextY--;
-      else if (dir === 'DOWN') nextY++;
-      else if (dir === 'LEFT') nextX--;
-      else if (dir === 'RIGHT') nextX++;
-
-      if (nextX === neck.x && nextY === neck.y) {
-        return; // Prevent running directly back into neck
-      }
-    }
-
     const s = stateRef.current;
-    const nextState: SnakeState = role === 'host'
-      ? { ...s, hostDir: dir }
-      : { ...s, guestDir: dir };
+    const nextState = role === 'host' ? { ...s, hostDir: dir } : { ...s, guestDir: dir };
 
-    // If both have chosen, advance game!
     if (nextState.hostDir !== null && nextState.guestDir !== null) {
-      advanceRound(nextState);
+      resolveTurn(nextState);
     } else {
       sendGameAction(nextState);
     }
   };
 
-  const advanceRound = (s: SnakeState) => {
-    const hostHead = s.hostSnake[0];
-    const guestHead = s.guestSnake[0];
+  const resolveTurn = (curr: SnakeState) => {
+    let nextHost = [...curr.hostSnake];
+    let nextGuest = [...curr.guestSnake];
+    let food = { ...curr.food };
 
-    // Compute next heads
-    const nextHostHead = getNextCell(hostHead, s.hostDir!);
-    const nextGuestHead = getNextCell(guestHead, s.guestDir!);
+    const hHead = { ...nextHost[0] };
+    if (curr.hostDir === 'UP') hHead.y--;
+    if (curr.hostDir === 'DOWN') hHead.y++;
+    if (curr.hostDir === 'LEFT') hHead.x--;
+    if (curr.hostDir === 'RIGHT') hHead.x++;
 
-    // Check collisions
-    const hostCrashed = checkCrash(nextHostHead, s.hostSnake, s.guestSnake);
-    const guestCrashed = checkCrash(nextGuestHead, s.guestSnake, s.hostSnake);
+    const gHead = { ...nextGuest[0] };
+    if (curr.guestDir === 'UP') gHead.y--;
+    if (curr.guestDir === 'DOWN') gHead.y++;
+    if (curr.guestDir === 'LEFT') gHead.x--;
+    if (curr.guestDir === 'RIGHT') gHead.x++;
 
-    let roundWinner: 'host' | 'guest' | 'draw' | null = null;
-    let nextPhase = s.phase;
-    let nextHostScore = s.hostScore;
-    let nextGuestScore = s.guestScore;
+    const hWall = hHead.x < 0 || hHead.x >= COLS || hHead.y < 0 || hHead.y >= ROWS;
+    const gWall = gHead.x < 0 || gHead.x >= COLS || gHead.y < 0 || gHead.y >= ROWS;
 
-    if (hostCrashed && guestCrashed) {
-      roundWinner = 'draw';
-      nextPhase = 'ended';
-    } else if (hostCrashed) {
-      roundWinner = 'guest';
-      nextPhase = 'ended';
-      nextGuestScore++;
-    } else if (guestCrashed) {
-      roundWinner = 'host';
-      nextPhase = 'ended';
-      nextHostScore++;
+    const hSelf = nextHost.some(p => p.x === hHead.x && p.y === hHead.y);
+    const gSelf = nextGuest.some(p => p.x === gHead.x && p.y === gHead.y);
+
+    const hOther = nextGuest.some(p => p.x === hHead.x && p.y === hHead.y);
+    const gOther = nextHost.some(p => p.x === gHead.x && p.y === gHead.y);
+
+    const headOn = hHead.x === gHead.x && hHead.y === gHead.y;
+
+    const hDead = hWall || hSelf || hOther || headOn;
+    const gDead = gWall || gSelf || gOther || headOn;
+
+    let winner: 'host' | 'guest' | 'draw' | null = null;
+    if (hDead && gDead) winner = 'draw';
+    else if (hDead) winner = 'guest';
+    else if (gDead) winner = 'host';
+
+    if (winner) {
+      let nextHScore = curr.hostScore;
+      let nextGScore = curr.guestScore;
+      if (winner === 'host') nextHScore++;
+      if (winner === 'guest') nextGScore++;
+
+      sendGameAction({
+        ...curr,
+        winner,
+        phase: 'ended',
+        hostScore: nextHScore,
+        guestScore: nextGScore,
+      });
+      return;
     }
 
-    // If no crash, move snakes
-    let nextHostSnake = [...s.hostSnake];
-    let nextGuestSnake = [...s.guestSnake];
-    let nextFood = s.food;
+    // Move forward
+    nextHost.unshift(hHead);
+    if (hHead.x === food.x && hHead.y === food.y) {
+      food = { x: Math.floor(Math.random() * COLS), y: Math.floor(Math.random() * ROWS) };
+    } else {
+      nextHost.pop();
+    }
 
-    if (!roundWinner) {
-      const hostAte = nextHostHead.x === s.food.x && nextHostHead.y === s.food.y;
-      const guestAte = nextGuestHead.x === s.food.x && nextGuestHead.y === s.food.y;
-
-      nextHostSnake.unshift(nextHostHead);
-      if (!hostAte) nextHostSnake.pop();
-
-      nextGuestSnake.unshift(nextGuestHead);
-      if (!guestAte) nextGuestSnake.pop();
-
-      // Relocate food if eaten
-      if (hostAte || guestAte) {
-        nextFood = relocateFood(nextHostSnake, nextGuestSnake);
-      }
+    nextGuest.unshift(gHead);
+    if (gHead.x === food.x && gHead.y === food.y) {
+      food = { x: Math.floor(Math.random() * COLS), y: Math.floor(Math.random() * ROWS) };
+    } else {
+      nextGuest.pop();
     }
 
     sendGameAction({
-      ...s,
-      hostSnake: nextHostSnake,
-      guestSnake: nextGuestSnake,
+      ...curr,
+      hostSnake: nextHost,
+      guestSnake: nextGuest,
       hostDir: null,
       guestDir: null,
-      food: nextFood,
-      winner: roundWinner,
-      phase: nextPhase,
-      hostScore: nextHostScore,
-      guestScore: nextGuestScore,
+      food,
     });
   };
 
-  const getNextCell = (head: Pt, dir: Dir): Pt => {
-    let x = head.x;
-    let y = head.y;
-    if (dir === 'UP') y--;
-    else if (dir === 'DOWN') y++;
-    else if (dir === 'LEFT') x--;
-    else if (dir === 'RIGHT') x++;
-    return { x, y };
-  };
-
-  const checkCrash = (head: Pt, myBody: Pt[], oppBody: Pt[]): boolean => {
-    // Wall crash
-    if (head.x < 0 || head.x >= COLS || head.y < 0 || head.y >= ROWS) return true;
-    // Self crash
-    if (myBody.some(p => p.x === head.x && p.y === head.y)) return true;
-    // Opponent crash
-    if (oppBody.some(p => p.x === head.x && p.y === head.y)) return true;
-    return false;
-  };
-
-  const relocateFood = (s1: Pt[], s2: Pt[]): Pt => {
-    const emptyCells: Pt[] = [];
-    for (let x = 0; x < COLS; x++) {
-      for (let y = 0; y < ROWS; y++) {
-        const occupied = s1.some(p => p.x === x && p.y === y) || s2.some(p => p.x === x && p.y === y);
-        if (!occupied) emptyCells.push({ x, y });
-      }
-    }
-    if (emptyCells.length === 0) return { x: 5, y: 5 };
-    return emptyCells[Math.floor(Math.random() * emptyCells.length)];
-  };
-
-  const startMatch = () => {
+  const startGame = () => {
     sendGameAction({
-      ...INITIAL(),
+      ...state,
       phase: 'playing',
-      hostScore: state.hostScore,
-      guestScore: state.guestScore,
+      hostSnake: [{ x: 2, y: 2 }],
+      guestSnake: [{ x: 9, y: 9 }],
+      hostDir: null,
+      guestDir: null,
+      food: { x: 5, y: 5 },
+      winner: null,
     });
   };
 
-  const restartGame = () => {
-    sendGameAction(INITIAL());
-  };
 
   return (
-    <div className="container-cute" style={{ maxWidth: '650px' }}>
-      <div className="card-cute" style={{ background: '#f5faf8', border: '1.5px solid #a7f3d0' }}>
-        {/* Header */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
-          <button onClick={() => selectGame(null)} className="btn-cute btn-cute-secondary" style={{ padding: '0.4rem 0.9rem', fontSize: '0.85rem' }}>
-            <ArrowLeft size={15} /> Back
-          </button>
-          <span className="badge-cute">Snake Duel Online 🐍⚔️</span>
-        </div>
+    <div className="game-container-responsive">
+      <GameHeader
+        title="Snake Duel"
+        emoji="🐍⚔️"
+        instructions={[
+          "Simultaneous turn-based Snake battle on a 12x12 grid.",
+          "Pick your direction arrow each turn to advance & eat treats 🍎.",
+          "Colliding with walls or snake bodies eliminates your snake!"
+        ]}
+      />
 
-        {/* Scores */}
-        <div style={{
-          display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px',
-          background: '#d1fae5', padding: '0.8rem', borderRadius: '15px',
-          textAlign: 'center', marginBottom: '1.5rem', border: '2px solid #1e1b4b'
-        }}>
-          <div>
-            <div style={{ fontSize: '0.8rem', color: '#059669' }}>{playerName} (You)</div>
-            <div style={{ fontSize: '1.6rem', fontWeight: 800, color: '#1e1b4b' }}>
-              {role === 'host' ? state.hostScore : state.guestScore}
-            </div>
-          </div>
-          <div>
-            <div style={{ fontSize: '0.8rem', color: '#059669' }}>{opponentName || 'Partner'}</div>
-            <div style={{ fontSize: '1.6rem', fontWeight: 800, color: '#1e1b4b' }}>
-              {role === 'host' ? state.guestScore : state.hostScore}
-            </div>
+      <div className="card-cute" style={{ background: '#faf5ff', border: '1.5px solid #ddd6fe' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.2rem', flexWrap: 'wrap', gap: '0.4rem' }}>
+          <span className="badge-cute" style={{ background: myDir ? '#dcfce7' : '#ede9fe', color: myDir ? '#15803d' : '#6d28d9' }}>
+            {state.phase === 'playing' ? (myDir ? '✅ Direction Locked' : '✨ PICK DIRECTION') : 'Snake Setup'}
+          </span>
+          <div style={{ display: 'flex', gap: '1rem', fontFamily: 'var(--font-world)', fontSize: '0.95rem' }}>
+            <span style={{ color: '#059669' }}>Host 🟢: {state.hostScore}</span>
+            <span style={{ color: '#ec4899' }}>Guest 🌸: {state.guestScore}</span>
           </div>
         </div>
 
-        {/* Status text */}
-        <div style={{ textAlign: 'center', marginBottom: '1rem', height: '2.5rem', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          {state.phase === 'setup' && (
-            <span className="font-cute" style={{ color: '#059669', fontSize: '1.1rem' }}>
-              Strategic turn-based Snake Battle! ⚔️
-            </span>
-          )}
-          {state.phase === 'playing' && (
-            <span className="font-cute" style={{ color: '#059669', fontSize: '1.1rem' }}>
-              {isMyChoiceSelected ? (
-                isTheirChoiceSelected ? 'Advancing round...' : `Waiting for ${opponentName || 'partner'}... ⏳`
-              ) : 'Pick your next step direction! 👇'}
-            </span>
-          )}
-          {state.phase === 'ended' && (
-            <span className="font-cute animate-pulse" style={{ color: '#dc2626', fontSize: '1.25rem', fontWeight: 'bold' }}>
-              {state.winner === 'draw' ? "Both crashed! It's a draw! 🤝" : state.winner === role ? '🎉 You won! Opponent crashed.' : '💀 You crashed! Partner wins.'}
-            </span>
-          )}
-        </div>
-
-        {/* Game Arena Grid */}
-        {state.phase !== 'setup' && (
-          <div style={{
-            display: 'grid', gridTemplateColumns: `repeat(${COLS}, 1fr)`,
-            gridTemplateRows: `repeat(${ROWS}, 1fr)`, gap: '1.5px',
-            background: '#1e1b4b', border: '4px solid #1e1b4b',
-            borderRadius: '12px', overflow: 'hidden', width: '100%',
-            maxWidth: '300px', margin: '0 auto 1.5rem', boxShadow: '3px 3px 0 #1e1b4b'
-          }}>
-            {Array.from({ length: ROWS }).map((_, y) =>
-              Array.from({ length: COLS }).map((_, x) => {
-                const isHostHead = state.hostSnake[0].x === x && state.hostSnake[0].y === y;
-                const isHostBody = state.hostSnake.slice(1).some(p => p.x === x && p.y === y);
-                const isGuestHead = state.guestSnake[0].x === x && state.guestSnake[0].y === y;
-                const isGuestBody = state.guestSnake.slice(1).some(p => p.x === x && p.y === y);
-                const isFood = state.food.x === x && state.food.y === y;
-
-                let bg = '#34d399'; // empty grass green
-                let content = '';
-
-                if (isHostHead) {
-                  bg = '#7c3aed';
-                  content = '💜';
-                } else if (isHostBody) {
-                  bg = '#a78bfa';
-                } else if (isGuestHead) {
-                  bg = '#ec4899';
-                  content = '🩷';
-                } else if (isGuestBody) {
-                  bg = '#fce7f3';
-                } else if (isFood) {
-                  content = '❤️';
-                }
-
-                return (
-                  <div
-                    key={`${x}-${y}`}
-                    style={{
-                      aspectRatio: '1', backgroundColor: bg, display: 'flex',
-                      alignItems: 'center', justifyContent: 'center',
-                      fontSize: '0.8rem',
-                    }}
-                  >
-                    {content}
-                  </div>
-                );
-              })
+        {/* SETUP PHASE */}
+        {state.phase === 'setup' && (
+          <div style={{ textAlign: 'center', padding: '2rem 1rem' }}>
+            <div style={{ fontSize: '3.5rem', marginBottom: '1rem', animation: 'float 2.5s ease infinite' }}>🐍⚔️</div>
+            <h3 className="heading-lg" style={{ fontSize: '1.4rem', color: '#059669', marginBottom: '0.6rem' }}>
+              Ready for Snake Battle?
+            </h3>
+            {role === 'host' ? (
+              <button onClick={startGame} className="btn-cute btn-cute-primary" style={{ padding: '0.75rem 1.8rem', background: '#059669', borderColor: '#059669' }}>
+                <Play size={18} /> Start Battle!
+              </button>
+            ) : (
+              <p style={{ color: '#6b7280' }}>Waiting for {opponentName || 'host'} to start...</p>
             )}
           </div>
         )}
 
-        {/* Action Controls */}
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '15px' }}>
-          {state.phase === 'setup' && (
-            <button onClick={startMatch} className="btn-cute btn-cute-primary" style={{ padding: '0.8rem 2.5rem' }}>
-              Start Duel 🐍
-            </button>
-          )}
+        {/* PLAYING PHASE */}
+        {state.phase === 'playing' && (
+          <div>
+            <div className="game-board-responsive" style={{ background: '#059669', padding: '0.4rem', borderRadius: '18px', display: 'grid', gridTemplateRows: 'repeat(12, 1fr)', gap: '0.15rem', marginBottom: '1.2rem' }}>
+              {Array.from({ length: ROWS }).map((_, r) => (
+                <div key={r} style={{ display: 'grid', gridTemplateColumns: 'repeat(12, 1fr)', gap: '0.15rem' }}>
+                  {Array.from({ length: COLS }).map((_, c) => {
+                    const isHost = state.hostSnake.some(p => p.x === c && p.y === r);
+                    const isGuest = state.guestSnake.some(p => p.x === c && p.y === r);
+                    const isFood = state.food.x === c && state.food.y === r;
 
-          {state.phase === 'playing' && !isMyChoiceSelected && (
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px', width: '220px' }}>
-              <div></div>
-              <button onClick={() => handleDirSelect('UP')} className="btn-cute btn-cute-primary" style={{ padding: '0.6rem 0' }}>▲</button>
-              <div></div>
-              <button onClick={() => handleDirSelect('LEFT')} className="btn-cute btn-cute-primary" style={{ padding: '0.6rem 0' }}>◀</button>
-              <button onClick={() => handleDirSelect('DOWN')} className="btn-cute btn-cute-primary" style={{ padding: '0.6rem 0' }}>▼</button>
-              <button onClick={() => handleDirSelect('RIGHT')} className="btn-cute btn-cute-primary" style={{ padding: '0.6rem 0' }}>▶</button>
-            </div>
-          )}
+                    let bg = '#047857';
+                    if (isHost) bg = '#7c3aed';
+                    if (isGuest) bg = '#ec4899';
 
-          {state.phase === 'ended' && (
-            <div style={{ display: 'flex', gap: '10px' }}>
-              <button onClick={startMatch} className="btn-cute btn-cute-primary">
-                <RefreshCw size={15} /> Next Round
-              </button>
-              <button onClick={restartGame} className="btn-cute btn-cute-secondary" style={{ padding: '0.5rem 1rem', fontSize: '0.85rem' }}>
-                Reset Scores
-              </button>
+                    return (
+                      <div
+                        key={c}
+                        style={{
+                          aspectRatio: '1 / 1',
+                          background: bg,
+                          borderRadius: '4px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          fontSize: '0.8rem'
+                        }}
+                      >
+                        {isFood ? '🍎' : ''}
+                      </div>
+                    );
+                  })}
+                </div>
+              ))}
             </div>
-          )}
-        </div>
+
+            {/* D-PAD Direction Controls */}
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.4rem', marginBottom: '1rem' }}>
+              <button onClick={() => handleDirSelect('UP')} disabled={myDir !== null} className="btn-cute btn-cute-secondary" style={{ padding: '0.5rem 1rem' }}><ArrowUp size={20} /></button>
+              <div style={{ display: 'flex', gap: '1rem' }}>
+                <button onClick={() => handleDirSelect('LEFT')} disabled={myDir !== null} className="btn-cute btn-cute-secondary" style={{ padding: '0.5rem 1rem' }}><ArrowLeft size={20} /></button>
+                <button onClick={() => handleDirSelect('RIGHT')} disabled={myDir !== null} className="btn-cute btn-cute-secondary" style={{ padding: '0.5rem 1rem' }}><ArrowRight size={20} /></button>
+              </div>
+              <button onClick={() => handleDirSelect('DOWN')} disabled={myDir !== null} className="btn-cute btn-cute-secondary" style={{ padding: '0.5rem 1rem' }}><ArrowDown size={20} /></button>
+            </div>
+          </div>
+        )}
+
+        {/* ENDED PHASE */}
+        {state.phase === 'ended' && (
+          <div style={{ textAlign: 'center', padding: '1rem 0' }}>
+            <h3 style={{ fontSize: '1.4rem', color: state.winner === 'draw' ? '#ca8a04' : state.winner === role ? '#059669' : '#dc2626', fontFamily: 'var(--font-world)', marginBottom: '0.6rem' }}>
+              {state.winner === 'draw' ? "Both Snakes Crashed!" : state.winner === role ? '🎉 Snake Victory!' : `💔 ${opponentName || 'Partner'} Won!`}
+            </h3>
+            {role === 'host' && (
+              <button onClick={startGame} className="btn-cute btn-cute-primary" style={{ padding: '0.65rem 1.6rem', background: '#059669', borderColor: '#059669' }}>
+                <RefreshCw size={16} /> Play Next Battle
+              </button>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );

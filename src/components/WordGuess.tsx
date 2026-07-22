@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useGamePeer } from '../utils/peerConnection';
-import { ArrowLeft, HelpCircle, Heart, Sparkles } from 'lucide-react';
+import { RefreshCw, Send, Heart } from 'lucide-react';
+import { GameHeader } from './GameHeader';
 
 interface WordGameState {
   phase: 'setup' | 'choosing' | 'playing' | 'ended';
@@ -14,12 +15,28 @@ interface WordGameState {
 }
 
 const INITIAL: WordGameState = {
-  phase: 'setup', creator: 'host', word: '', hint: '',
-  guessedLetters: [], maxStrikes: 6, strikes: 0, result: null,
+  phase: 'setup',
+  creator: 'host',
+  word: '',
+  hint: '',
+  guessedLetters: [],
+  maxStrikes: 6,
+  strikes: 0,
+  result: null,
 };
 
+const ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
+
 export const WordGuess: React.FC = () => {
-  const { role, sendGameAction, gameState, selectGame, opponentName } = useGamePeer();
+  const { role, sendGameAction, gameState, opponentName } = useGamePeer();
+
+  // Host auto-initialization
+  useEffect(() => {
+    if (role === 'host' && (!gameState || gameState.phase === undefined)) {
+      sendGameAction(INITIAL);
+    }
+  }, [role, gameState, sendGameAction]);
+
   const state: WordGameState = gameState ?? INITIAL;
 
   const [inputWord, setInputWord] = useState('');
@@ -35,8 +52,14 @@ export const WordGuess: React.FC = () => {
 
   const submitWord = () => {
     if (!inputWord.trim()) return;
-    sendGameAction({ ...state, phase: 'playing', word: inputWord.trim().toUpperCase(), hint: inputHint.trim() });
-    setInputWord(''); setInputHint('');
+    sendGameAction({
+      ...state,
+      phase: 'playing',
+      word: inputWord.trim().toUpperCase(),
+      hint: inputHint.trim()
+    });
+    setInputWord('');
+    setInputHint('');
   };
 
   const guessLetter = (letter: string) => {
@@ -58,207 +81,193 @@ export const WordGuess: React.FC = () => {
     sendGameAction({ ...INITIAL, creator: state.creator === 'host' ? 'guest' : 'host' });
   };
 
-  const ALPHA = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
-
   return (
-    <div className="container-cute" style={{ maxWidth: '700px' }}>
-      <div className="card-cute" style={{ background: '#faf5ff', border: '1.5px solid #ddd6fe' }}>
-        {/* Back */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
-          <button onClick={() => selectGame(null)} className="btn-cute btn-cute-secondary" style={{ padding: '0.4rem 0.9rem', fontSize: '0.85rem' }}>
-            <ArrowLeft size={15} /> Back
-          </button>
-          <span className="badge-cute">Word Guessing 🔠</span>
-        </div>
+    <div className="game-container-responsive">
+      <GameHeader
+        title="Word Guessing"
+        emoji="🔠"
+        instructions={[
+          "The Creator sets a secret word and optional hint for their partner.",
+          "The Guesser taps letter tiles to uncover the hidden word.",
+          "You have 6 allowed strikes before running out of hearts!"
+        ]}
+      />
 
-        {/* SETUP */}
+      <div className="card-cute" style={{ background: '#faf5ff', border: '1.5px solid #ddd6fe' }}>
+        {/* SETUP PHASE */}
         {state.phase === 'setup' && (
-          <div style={{ textAlign: 'center', padding: '2rem 0' }}>
-            <h2 className="heading-lg">Who sets the secret word? 🤫</h2>
-            <p style={{ color: '#6b7280', marginBottom: '2rem' }}>One player writes a word + hint, the other guesses!</p>
-            <div style={{ display: 'flex', justifyContent: 'center', gap: '1rem', flexWrap: 'wrap' }}>
-              <button onClick={() => startSetup(role === 'host' ? 'host' : 'guest')} className="btn-cute btn-cute-primary">
-                I'll set it! ✍️
+          <div style={{ textAlign: 'center', padding: '1.5rem 0' }}>
+            <div style={{ fontSize: '3.5rem', marginBottom: '1rem', animation: 'float 2.5s ease infinite' }}>🔠💡</div>
+            <h3 className="heading-lg" style={{ fontSize: '1.4rem', color: '#7c3aed', marginBottom: '1.2rem' }}>
+              Who sets the secret word?
+            </h3>
+            <div style={{ display: 'flex', gap: '1rem', justifyContent: 'center', flexWrap: 'wrap' }}>
+              <button onClick={() => startSetup('host')} className="btn-cute btn-cute-primary" style={{ padding: '0.8rem 1.4rem' }}>
+                👑 Host Sets Word
               </button>
-              <button onClick={() => startSetup(role === 'host' ? 'guest' : 'host')} className="btn-cute btn-cute-secondary">
-                {opponentName || 'Partner'} sets it 👉
+              <button onClick={() => startSetup('guest')} className="btn-cute btn-cute-primary" style={{ padding: '0.8rem 1.4rem', background: '#ec4899', borderColor: '#ec4899' }}>
+                🌸 Guest Sets Word
               </button>
             </div>
           </div>
         )}
 
-        {/* CHOOSING */}
+        {/* CHOOSING PHASE */}
         {state.phase === 'choosing' && (
-          <div style={{ textAlign: 'center', padding: '1rem 0' }}>
+          <div>
+            <div style={{ textAlign: 'center', marginBottom: '1.2rem' }}>
+              <span className="badge-cute" style={{ background: isCreator ? '#f3e8ff' : '#f9fafb', color: isCreator ? '#7c3aed' : '#6b7280' }}>
+                {isCreator ? '✨ Your turn to set the secret word!' : `⏳ Waiting for ${opponentName || 'Partner'} to set a word...`}
+              </span>
+            </div>
+
             {isCreator ? (
-              <div style={{ maxWidth: '400px', margin: '0 auto', textAlign: 'left' }}>
-                <h2 className="heading-lg" style={{ textAlign: 'center' }}>Set Your Secret Word 💜</h2>
-                <div style={{ marginBottom: '1rem' }}>
-                  <label style={{ display: 'block', fontWeight: 600, color: '#4c1d95', marginBottom: '0.4rem' }}>Secret Word:</label>
-                  <input
-                    className="input-cute"
-                    placeholder="e.g. HUG, FOREVER, CUTIE..."
-                    value={inputWord}
-                    onChange={e => setInputWord(e.target.value.replace(/[^A-Za-z ]/gi, ''))}
-                    style={{ textTransform: 'uppercase', textAlign: 'center', letterSpacing: '2px', fontSize: '1.1rem' }}
-                    autoFocus
-                  />
-                </div>
-                <div style={{ marginBottom: '1.5rem' }}>
-                  <label style={{ display: 'block', fontWeight: 600, color: '#4c1d95', marginBottom: '0.4rem' }}>Hint (optional):</label>
-                  <input
-                    className="input-cute"
-                    placeholder="e.g. Something I give you every day..."
-                    value={inputHint}
-                    onChange={e => setInputHint(e.target.value)}
-                  />
-                </div>
+              <div>
+                <label style={{ display: 'block', fontWeight: 700, color: '#7c3aed', marginBottom: '0.4rem', fontSize: '0.9rem' }}>
+                  Secret Word (A-Z letters):
+                </label>
+                <input
+                  className="input-cute"
+                  placeholder="e.g. SUNSHINE"
+                  value={inputWord}
+                  onChange={e => setInputWord(e.target.value.toUpperCase().replace(/[^A-Z ]/g, ''))}
+                  style={{ marginBottom: '0.8rem', fontSize: '1rem', textTransform: 'uppercase', letterSpacing: '0.1em' }}
+                />
+
+                <label style={{ display: 'block', fontWeight: 700, color: '#ec4899', marginBottom: '0.4rem', fontSize: '0.9rem' }}>
+                  Optional Hint for your partner:
+                </label>
+                <input
+                  className="input-cute"
+                  placeholder="e.g. My favorite nickname for you"
+                  value={inputHint}
+                  onChange={e => setInputHint(e.target.value)}
+                  style={{ marginBottom: '1rem', fontSize: '0.95rem' }}
+                />
+
                 <button
                   onClick={submitWord}
                   disabled={!inputWord.trim()}
                   className="btn-cute btn-cute-primary"
-                  style={{ width: '100%', justifyContent: 'center' }}
+                  style={{ width: '100%', padding: '0.8rem', justifyContent: 'center' }}
                 >
-                  Send Word! 💌
+                  <Send size={16} /> Lock Secret Word
                 </button>
               </div>
             ) : (
-              <div style={{ padding: '3rem 0' }}>
-                <div style={{ fontSize: '3rem', animation: 'float 2s ease-in-out infinite' }}>✍️💭</div>
-                <h2 className="heading-lg" style={{ marginTop: '1rem' }}>
-                  {opponentName || 'Partner'} is thinking of a word...
-                </h2>
-                <p style={{ color: '#6b7280' }}>Get ready to guess! 🎯</p>
+              <div style={{ textAlign: 'center', padding: '2rem 1rem', color: '#6b7280' }}>
+                <div style={{ fontSize: '3rem', marginBottom: '0.5rem', animation: 'pulse-gentle 1.5s infinite' }}>🤐</div>
+                <p style={{ fontSize: '1rem' }}>{opponentName || 'Partner'} is choosing a secret word and hint!</p>
               </div>
             )}
           </div>
         )}
 
-        {/* PLAYING / ENDED */}
+        {/* PLAYING OR ENDED PHASE */}
         {(state.phase === 'playing' || state.phase === 'ended') && (
-          <div style={{ textAlign: 'center' }}>
-            {/* Info */}
-            <div style={{ marginBottom: '1rem', color: '#6b7280', fontSize: '0.95rem' }}>
-              {isCreator
-                ? <span><strong>{opponentName}</strong> is guessing your word!</span>
-                : <span><strong>{opponentName}</strong> set this word for you!</span>
-              }
+          <div>
+            {/* Strikes Header */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.2rem' }}>
+              <div style={{ display: 'flex', gap: '4px' }}>
+                {Array.from({ length: state.maxStrikes }).map((_, i) => (
+                  <Heart
+                    key={i}
+                    size={20}
+                    fill={i < state.maxStrikes - state.strikes ? '#ec4899' : 'none'}
+                    color={i < state.maxStrikes - state.strikes ? '#ec4899' : '#d1d5db'}
+                  />
+                ))}
+              </div>
               {state.hint && (
-                <div style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', background: '#f5f3ff', padding: '0.35rem 0.9rem', borderRadius: '50px', color: '#7c3aed', fontWeight: 600, marginLeft: '0.8rem' }}>
-                  <HelpCircle size={14} /> {state.hint}
-                </div>
+                <span className="badge-cute" style={{ background: '#fef3c7', color: '#b45309', fontSize: '0.82rem' }}>
+                  Hint: {state.hint}
+                </span>
               )}
             </div>
 
-            {/* Word display */}
-            <div style={{ display: 'flex', justifyContent: 'center', flexWrap: 'wrap', gap: '8px', margin: '1.5rem 0' }}>
-              {state.word.split('').map((char, i) => {
-                const revealed = state.guessedLetters.includes(char) || (state.result === 'lost');
+            {/* Word Display */}
+            <div style={{
+              display: 'flex',
+              justifyContent: 'center',
+              gap: '0.5rem',
+              flexWrap: 'wrap',
+              marginBottom: '1.5rem',
+              padding: '1.2rem',
+              background: '#ffffff',
+              border: '2px solid #ddd6fe',
+              borderRadius: '18px'
+            }}>
+              {state.word.split('').map((char, idx) => {
+                const isSpace = char === ' ';
+                const isGuessed = state.guessedLetters.includes(char) || state.phase === 'ended';
                 return (
-                  <span key={i} style={{
-                    display: 'inline-block',
-                    width: '36px',
-                    borderBottom: char === ' ' ? 'none' : '3px solid #7c3aed',
-                    margin: '0 3px',
-                    fontSize: '1.8rem',
-                    fontWeight: 700,
-                    color: revealed ? (state.result === 'lost' && !state.guessedLetters.includes(char) ? '#dc2626' : '#1e1b4b') : 'transparent',
-                    textAlign: 'center',
-                    height: '44px',
-                    fontFamily: 'var(--font-cute)',
-                    letterSpacing: '1px',
-                  }}>
-                    {char === ' ' ? '\u00A0' : char}
-                  </span>
+                  <div
+                    key={idx}
+                    style={{
+                      width: isSpace ? '16px' : '38px',
+                      height: isSpace ? '44px' : '44px',
+                      borderBottom: isSpace ? 'none' : '3px solid #7c3aed',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      fontSize: '1.5rem',
+                      fontWeight: 900,
+                      color: isGuessed ? '#7c3aed' : 'transparent',
+                      fontFamily: 'monospace'
+                    }}
+                  >
+                    {isSpace ? ' ' : isGuessed ? char : '_'}
+                  </div>
                 );
               })}
             </div>
 
-            {/* Hearts / Lives */}
-            <div style={{ display: 'flex', justifyContent: 'center', gap: '6px', marginBottom: '1.5rem' }}>
-              {Array.from({ length: state.maxStrikes }).map((_, i) => (
-                <Heart key={i} size={26}
-                  fill={i < state.strikes ? 'none' : '#7c3aed'}
-                  color={i < state.strikes ? '#ddd6fe' : '#7c3aed'}
-                  style={{ transition: 'all 0.3s' }}
-                />
-              ))}
-            </div>
+            {/* Result Message */}
+            {state.phase === 'ended' && (
+              <div style={{ textAlign: 'center', marginBottom: '1.5rem' }}>
+                <h3 style={{ fontSize: '1.5rem', color: state.result === 'won' ? '#059669' : '#dc2626', fontFamily: 'var(--font-world)', marginBottom: '0.4rem' }}>
+                  {state.result === 'won' ? '🎉 Word Uncovered!' : '💔 Out of Hearts!'}
+                </h3>
+                <p style={{ color: '#6b7280', fontSize: '0.95rem', marginBottom: '1rem' }}>
+                  Secret Word was: <strong>{state.word}</strong>
+                </p>
+                <button onClick={reset} className="btn-cute btn-cute-primary" style={{ padding: '0.65rem 1.6rem' }}>
+                  <RefreshCw size={16} /> Switch Roles & Play Again
+                </button>
+              </div>
+            )}
 
-            {/* Playing state: keyboard or watcher */}
+            {/* Alphabet Grid */}
             {state.phase === 'playing' && (
-              isGuesser ? (
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '6px', maxWidth: '480px', margin: '0 auto' }}>
-                  {ALPHA.map(l => {
-                    const used = state.guessedLetters.includes(l);
-                    const correct = used && state.word.includes(l);
-                    const wrong = used && !state.word.includes(l);
+              <div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '0.4rem', marginBottom: '1rem' }}>
+                  {ALPHABET.map(letter => {
+                    const used = state.guessedLetters.includes(letter);
                     return (
                       <button
-                        key={l}
-                        onClick={() => guessLetter(l)}
-                        disabled={used}
+                        key={letter}
+                        onClick={() => guessLetter(letter)}
+                        disabled={!canGuess || used}
                         style={{
-                          padding: '0.5rem 0',
-                          border: `1.5px solid ${correct ? '#10b981' : wrong ? '#fecaca' : '#ddd6fe'}`,
-                          borderRadius: '8px',
-                          background: correct ? '#d1fae5' : wrong ? '#fef2f2' : '#fff',
-                          color: correct ? '#059669' : wrong ? '#dc2626' : '#4c1d95',
+                          padding: '0.65rem 0.2rem',
+                          borderRadius: '10px',
+                          border: used ? '1px solid #e5e7eb' : '1.5px solid #ddd6fe',
+                          background: used ? '#f3f4f6' : '#ffffff',
+                          color: used ? '#9ca3af' : '#1e1b4b',
                           fontWeight: 700,
-                          fontSize: '0.95rem',
-                          cursor: used ? 'not-allowed' : 'pointer',
-                          transition: 'all 0.15s',
-                          fontFamily: 'var(--font-cute)',
+                          fontSize: '0.9rem',
+                          cursor: canGuess && !used ? 'pointer' : 'default',
+                          fontFamily: 'monospace'
                         }}
                       >
-                        {l}
+                        {letter}
                       </button>
                     );
                   })}
                 </div>
-              ) : (
-                <div style={{ background: '#f5f3ff', borderRadius: '16px', padding: '1.2rem', display: 'inline-block' }}>
-                  <p style={{ fontWeight: 600, color: '#4c1d95', marginBottom: '0.6rem' }}>Guessed so far:</p>
-                  <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', justifyContent: 'center' }}>
-                    {state.guessedLetters.length === 0
-                      ? <span style={{ color: '#a78bfa', fontSize: '0.9rem' }}>None yet...</span>
-                      : state.guessedLetters.map(l => (
-                        <span key={l} style={{
-                          padding: '0.25rem 0.6rem',
-                          borderRadius: '6px',
-                          fontWeight: 700,
-                          background: state.word.includes(l) ? '#d1fae5' : '#fef2f2',
-                          color: state.word.includes(l) ? '#059669' : '#dc2626',
-                          border: `1px solid ${state.word.includes(l) ? '#a7f3d0' : '#fecaca'}`,
-                        }}>{l}</span>
-                      ))
-                    }
-                  </div>
+                <div style={{ textAlign: 'center', color: isGuesser ? '#7c3aed' : '#6b7280', fontSize: '0.88rem', fontWeight: 600 }}>
+                  {isGuesser ? 'Tap letters to guess the word!' : `Watching ${opponentName || 'partner'} guess your word...`}
                 </div>
-              )
-            )}
-
-            {/* ENDED */}
-            {state.phase === 'ended' && (
-              <div style={{ animation: 'pop-in 0.4s ease', marginTop: '1.5rem' }}>
-                {state.result === 'won' ? (
-                  <div>
-                    <div style={{ fontSize: '2.5rem', marginBottom: '0.5rem' }}>🎉⭐🎉</div>
-                    <h3 className="font-cute" style={{ color: '#059669', fontSize: '2rem', margin: '0 0 0.5rem' }}>
-                      {isCreator ? `${opponentName} Guessed It!` : 'You Got It!'}
-                    </h3>
-                    <p style={{ color: '#6b7280' }}>The word was <strong style={{ color: '#4c1d95' }}>{state.word}</strong> !</p>
-                  </div>
-                ) : (
-                  <div>
-                    <div style={{ fontSize: '2.5rem', marginBottom: '0.5rem' }}>💔</div>
-                    <h3 className="font-cute" style={{ color: '#dc2626', fontSize: '2rem', margin: '0 0 0.5rem' }}>Out of Lives!</h3>
-                    <p style={{ color: '#6b7280' }}>The word was <strong style={{ color: '#4c1d95' }}>{state.word}</strong></p>
-                  </div>
-                )}
-                <button onClick={reset} className="btn-cute btn-cute-primary" style={{ marginTop: '1.5rem' }}>
-                  <Sparkles size={16} /> Play Again (Swap Roles)
-                </button>
               </div>
             )}
           </div>

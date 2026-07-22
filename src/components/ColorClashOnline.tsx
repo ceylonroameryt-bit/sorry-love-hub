@@ -1,9 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import { useGamePeer } from '../utils/peerConnection';
-import { ArrowLeft, RefreshCw } from 'lucide-react';
-
-// Color Clash Online — Both players see a sequence of colored blocks, race to identify matching colors
-// Actually: Each round, host broadcasts a target color. Both players race to click the matching color swatch.
+import { RefreshCw } from 'lucide-react';
+import { GameHeader } from './GameHeader';
 
 const COLORS = [
   { name: 'RED', hex: '#ef4444' },
@@ -17,11 +15,11 @@ const COLORS = [
 ];
 
 interface ColorClashState {
-  phase: 'waiting' | 'playing' | 'ended';
+  phase: 'playing' | 'ended';
   round: number;
   totalRounds: number;
   targetColorIdx: number;
-  displayColorIdx: number; // color of the text — STROOP effect
+  displayColorIdx: number;
   hostChoice: number | null;
   guestChoice: number | null;
   hostPoints: number;
@@ -29,235 +27,214 @@ interface ColorClashState {
   winner: 'host' | 'guest' | 'draw' | null;
   hostScore: number;
   guestScore: number;
-  options: number[]; // 4 color indices shown
+  options: number[];
 }
 
-function seededRandom(seed: number) {
-  let s = seed;
-  return () => {
-    s = (s * 16807) % 2147483647;
-    return (s - 1) / 2147483646;
-  };
-}
+function generateRound(): { targetColorIdx: number; displayColorIdx: number; options: number[] } {
+  const targetColorIdx = Math.floor(Math.random() * COLORS.length);
+  let displayColorIdx = Math.floor(Math.random() * COLORS.length);
+  while (displayColorIdx === targetColorIdx) displayColorIdx = Math.floor(Math.random() * COLORS.length);
 
-function generateRound(round: number): { targetColorIdx: number; displayColorIdx: number; options: number[] } {
-  const rand = seededRandom(round * 7 + 42);
-  const targetColorIdx = Math.floor(rand() * COLORS.length);
-  let displayColorIdx = Math.floor(rand() * COLORS.length);
-  while (displayColorIdx === targetColorIdx) displayColorIdx = Math.floor(rand() * COLORS.length);
-
-  // 4 options: correct + 3 distractors
   const pool = Array.from({ length: COLORS.length }, (_, i) => i).filter(i => i !== targetColorIdx);
   const distractors: number[] = [];
   while (distractors.length < 3) {
-    const pick = pool[Math.floor(rand() * pool.length)];
+    const pick = pool[Math.floor(Math.random() * pool.length)];
     if (!distractors.includes(pick)) distractors.push(pick);
   }
-  const options = [targetColorIdx, ...distractors].sort(() => rand() - 0.5);
+  const options = [targetColorIdx, ...distractors].sort(() => Math.random() - 0.5);
   return { targetColorIdx, displayColorIdx, options };
 }
 
-const INITIAL: ColorClashState = {
-  phase: 'waiting',
-  round: 0,
-  totalRounds: 10,
-  ...generateRound(0),
-  hostChoice: null,
-  guestChoice: null,
-  hostPoints: 0,
-  guestPoints: 0,
-  winner: null,
-  hostScore: 0,
-  guestScore: 0,
-};
+function makeInitial(): ColorClashState {
+  const rData = generateRound();
+  return {
+    phase: 'playing',
+    round: 1,
+    totalRounds: 8,
+    targetColorIdx: rData.targetColorIdx,
+    displayColorIdx: rData.displayColorIdx,
+    hostChoice: null,
+    guestChoice: null,
+    hostPoints: 0,
+    guestPoints: 0,
+    winner: null,
+    hostScore: 0,
+    guestScore: 0,
+    options: rData.options,
+  };
+}
 
 export const ColorClashOnline: React.FC = () => {
-  const { role, sendGameAction, gameState, selectGame, opponentName, playerName } = useGamePeer();
-  const state: ColorClashState = gameState ?? INITIAL;
+  const { role, sendGameAction, gameState, opponentName } = useGamePeer();
+
+  // Host auto-initialization
+  useEffect(() => {
+    if (role === 'host' && (!gameState || gameState.phase === undefined)) {
+      sendGameAction(makeInitial());
+    }
+  }, [role, gameState, sendGameAction]);
+
+  const state: ColorClashState = gameState ?? makeInitial();
   const stateRef = useRef(state);
   useEffect(() => { stateRef.current = state; }, [state]);
 
   const myChoice = role === 'host' ? state.hostChoice : state.guestChoice;
-  const hasAnswered = myChoice !== null;
 
-  const startGame = () => {
-    const r = generateRound(1);
-    sendGameAction({ ...INITIAL, ...r, phase: 'playing', round: 1 });
-  };
+  const handlePick = (idx: number) => {
+    if (myChoice !== null || state.phase !== 'playing') return;
 
-  const pickColor = (idx: number) => {
     const s = stateRef.current;
-    if (s.phase !== 'playing' || hasAnswered) return;
-    const key = role === 'host' ? 'hostChoice' : 'guestChoice';
-    const newState = { ...s, [key]: idx };
+    const isHost = role === 'host';
+    const nextState: ColorClashState = isHost
+      ? { ...s, hostChoice: idx }
+      : { ...s, guestChoice: idx };
 
-    // Check if both answered
-    const hostC = role === 'host' ? idx : s.hostChoice;
-    const guestC = role === 'guest' ? idx : s.guestChoice;
+    if (nextState.hostChoice !== null && nextState.guestChoice !== null) {
+      let hPts = nextState.hostPoints;
+      let gPts = nextState.guestPoints;
 
-    if (hostC !== null && guestC !== null) {
-      const hostCorrect = hostC === s.targetColorIdx;
-      const guestCorrect = guestC === s.targetColorIdx;
-      const newHostPts = s.hostPoints + (hostCorrect ? 1 : 0);
-      const newGuestPts = s.guestPoints + (guestCorrect ? 1 : 0);
-      const isLastRound = s.round >= s.totalRounds;
+      if (nextState.hostChoice === nextState.displayColorIdx) hPts++;
+      if (nextState.guestChoice === nextState.displayColorIdx) gPts++;
 
-      if (isLastRound) {
-        const winner = newHostPts > newGuestPts ? 'host' : newGuestPts > newHostPts ? 'guest' : 'draw';
-        const nextHostScore = s.hostScore + (winner === 'host' ? 1 : 0);
-        const nextGuestScore = s.guestScore + (winner === 'guest' ? 1 : 0);
-        setTimeout(() => {
-          sendGameAction({
-            ...newState,
-            hostChoice: hostC,
-            guestChoice: guestC,
-            hostPoints: newHostPts,
-            guestPoints: newGuestPts,
-            winner,
-            phase: 'ended',
-            hostScore: nextHostScore,
-            guestScore: nextGuestScore,
-          });
-        }, 1200);
-      } else {
-        const nextRound = s.round + 1;
-        const nextRoundData = generateRound(nextRound);
-        setTimeout(() => {
-          sendGameAction({
-            ...s,
-            ...nextRoundData,
-            round: nextRound,
-            hostChoice: null,
-            guestChoice: null,
-            hostPoints: newHostPts,
-            guestPoints: newGuestPts,
-          });
-        }, 1200);
+      const isEnded = nextState.round >= nextState.totalRounds;
+      let winner: 'host' | 'guest' | 'draw' | null = null;
+      let hScore = nextState.hostScore;
+      let gScore = nextState.guestScore;
+
+      if (isEnded) {
+        if (hPts > gPts) { winner = 'host'; hScore++; }
+        else if (gPts > hPts) { winner = 'guest'; gScore++; }
+        else winner = 'draw';
       }
+
+      nextState.hostPoints = hPts;
+      nextState.guestPoints = gPts;
+      nextState.winner = winner;
+      nextState.phase = isEnded ? 'ended' : 'playing';
     }
 
-    sendGameAction({ ...newState, [key]: idx, hostChoice: hostC, guestChoice: guestC });
+    sendGameAction(nextState);
   };
 
-  const resetGame = () => {
-    const s = stateRef.current;
-    sendGameAction({ ...INITIAL, hostScore: s.hostScore, guestScore: s.guestScore });
+  const nextRound = () => {
+    if (role !== 'host') return;
+    const rData = generateRound();
+    sendGameAction({
+      ...state,
+      round: state.round + 1,
+      targetColorIdx: rData.targetColorIdx,
+      displayColorIdx: rData.displayColorIdx,
+      options: rData.options,
+      hostChoice: null,
+      guestChoice: null,
+      phase: 'playing',
+    });
   };
-  const fullReset = () => sendGameAction({ ...INITIAL });
 
-  const target = COLORS[state.targetColorIdx];
-  const display = COLORS[state.displayColorIdx];
+  const resetAll = () => sendGameAction(makeInitial());
+
+  const wordName = COLORS[state.targetColorIdx]?.name || 'COLOR';
+  const inkHex = COLORS[state.displayColorIdx]?.hex || '#ef4444';
 
   return (
-    <div className="container-cute" style={{ maxWidth: '520px' }}>
-      <div className="card-cute" style={{ background: '#fdf2f8', border: '1.5px solid #f9a8d4' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
-          <button onClick={() => selectGame(null)} className="btn-cute btn-cute-secondary" style={{ padding: '0.4rem 0.9rem', fontSize: '0.85rem' }}>
-            <ArrowLeft size={15} /> Back
-          </button>
-          <span className="badge-cute">Color Clash Online 🎨</span>
+    <div className="game-container-responsive">
+      <GameHeader
+        title="Color Clash"
+        emoji="🎨"
+        instructions={[
+          "Stroop Test Challenge! Read the text word carefully.",
+          "Identify the INK COLOR of the displayed text, NOT what the word says!",
+          "Tap the matching color swatch as fast as you can. Highest score wins!"
+        ]}
+      />
+
+      <div className="card-cute" style={{ background: '#faf5ff', border: '1.5px solid #ddd6fe' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.2rem', flexWrap: 'wrap', gap: '0.4rem' }}>
+          <span className="badge-cute" style={{ background: '#ede9fe', color: '#6d28d9' }}>
+            Round {state.round} of {state.totalRounds}
+          </span>
+          <div style={{ display: 'flex', gap: '1rem', fontFamily: 'var(--font-world)', fontSize: '0.95rem' }}>
+            <span style={{ color: '#7c3aed' }}>Host: {state.hostPoints}</span>
+            <span style={{ color: '#ec4899' }}>Guest: {state.guestPoints}</span>
+          </div>
         </div>
 
+        {/* Stroop Word Header */}
         <div style={{
-          display: 'grid', gridTemplateColumns: '1fr auto 1fr', gap: '10px', alignItems: 'center',
-          background: '#fce7f3', padding: '0.8rem', borderRadius: '15px',
-          textAlign: 'center', marginBottom: '1.5rem', border: '2px solid #1e1b4b'
+          background: '#ffffff',
+          border: '2px solid #ddd6fe',
+          borderRadius: '20px',
+          padding: '1.5rem',
+          textAlign: 'center',
+          marginBottom: '1.5rem',
+          boxShadow: '0 4px 14px rgba(124,58,237,0.06)'
         }}>
-          <div>
-            <div style={{ fontSize: '0.8rem', color: '#9d174d' }}>{playerName}</div>
-            <div style={{ fontSize: '1.8rem', fontWeight: 800 }}>{role === 'host' ? state.hostPoints : state.guestPoints}</div>
-            <div style={{ fontSize: '0.7rem', color: '#6b7280' }}>Win: {role === 'host' ? state.hostScore : state.guestScore}</div>
-          </div>
-          <div style={{ fontSize: '1.2rem' }}>🎨</div>
-          <div>
-            <div style={{ fontSize: '0.8rem', color: '#9d174d' }}>{opponentName || 'Partner'}</div>
-            <div style={{ fontSize: '1.8rem', fontWeight: 800 }}>{role === 'host' ? state.guestPoints : state.hostPoints}</div>
-            <div style={{ fontSize: '0.7rem', color: '#6b7280' }}>Win: {role === 'host' ? state.guestScore : state.hostScore}</div>
+          <span style={{ fontSize: '0.8rem', color: '#6b7280', fontWeight: 700, textTransform: 'uppercase' }}>
+            TAP THE INK COLOR:
+          </span>
+          <div style={{ fontSize: '3rem', fontWeight: 900, color: inkHex, fontFamily: 'var(--font-world)', marginTop: '0.4rem' }}>
+            {wordName}
           </div>
         </div>
 
-        {state.phase === 'waiting' && (
-          <div style={{ textAlign: 'center', padding: '2rem' }}>
-            <div style={{ fontSize: '3rem', marginBottom: '1rem' }}>🎨</div>
-            <p className="font-cute" style={{ color: '#9d174d', marginBottom: '1.5rem', fontSize: '1rem' }}>
-              STROOP Color Challenge — click the <strong>actual color</strong> shown, not the word!
-            </p>
-            {role === 'host' ? (
-              <button onClick={startGame} className="btn-cute btn-cute-primary">Start Game! 🚀</button>
-            ) : (
-              <p style={{ color: '#a78bfa' }}>Waiting for {opponentName || 'host'} to start... ⏳</p>
+        {/* Color Swatch Options */}
+        {state.phase === 'playing' && (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '0.8rem', marginBottom: '1.5rem' }}>
+            {state.options.map((colIdx) => {
+              const col = COLORS[colIdx];
+              const isSelected = myChoice === colIdx;
+              return (
+                <button
+                  key={colIdx}
+                  onClick={() => handlePick(colIdx)}
+                  disabled={myChoice !== null}
+                  style={{
+                    background: col.hex,
+                    border: isSelected ? '3px solid #ffffff' : 'none',
+                    borderRadius: '16px',
+                    padding: '1.2rem 0.5rem',
+                    color: '#ffffff',
+                    fontWeight: 900,
+                    fontSize: '1.1rem',
+                    cursor: myChoice === null ? 'pointer' : 'default',
+                    boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+                    fontFamily: 'var(--font-cute)'
+                  }}
+                >
+                  {col.name}
+                </button>
+              );
+            })}
+          </div>
+        )}
+
+        {/* Reveal or Next controls */}
+        {state.hostChoice !== null && state.guestChoice !== null && state.phase === 'playing' && (
+          <div style={{ textAlign: 'center' }}>
+            <div style={{ color: '#059669', fontWeight: 700, fontSize: '1rem', marginBottom: '0.8rem' }}>
+              Both choices locked in!
+            </div>
+            {role === 'host' && (
+              <button onClick={nextRound} className="btn-cute btn-cute-primary" style={{ padding: '0.65rem 1.6rem' }}>
+                Next Round ➔
+              </button>
             )}
           </div>
         )}
 
-        {state.phase === 'playing' && (
-          <div>
-            <div style={{ textAlign: 'center', marginBottom: '0.5rem', color: '#9d174d', fontSize: '0.85rem' }}>
-              Round {state.round} / {state.totalRounds}
-            </div>
-            {/* STROOP: word is target color name, but text color is different */}
-            <div style={{
-              textAlign: 'center', marginBottom: '1.5rem', padding: '1.5rem',
-              background: '#fff', borderRadius: '16px', border: '3px solid #1e1b4b',
-              boxShadow: '4px 4px 0 #1e1b4b'
-            }}>
-              <div style={{ fontSize: '0.85rem', color: '#9d174d', marginBottom: '0.5rem' }}>What <strong>COLOR</strong> is this word?</div>
-              <div style={{ fontSize: '3.5rem', fontWeight: 900, color: display.hex, fontFamily: 'var(--font-cute)', lineHeight: 1 }}>
-                {target.name}
-              </div>
-            </div>
-
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '1rem' }}>
-              {state.options.map(idx => {
-                const c = COLORS[idx];
-                const isSelected = myChoice === idx;
-                const showResult = state.hostChoice !== null && state.guestChoice !== null;
-                const isCorrect = idx === state.targetColorIdx;
-                return (
-                  <button
-                    key={idx}
-                    onClick={() => pickColor(idx)}
-                    disabled={hasAnswered}
-                    style={{
-                      background: showResult ? (isCorrect ? '#22c55e' : '#ef4444') : c.hex,
-                      border: `3px solid ${isSelected ? '#1e1b4b' : 'transparent'}`,
-                      borderRadius: '14px', padding: '1.2rem', cursor: hasAnswered ? 'default' : 'pointer',
-                      color: '#fff', fontWeight: 800, fontSize: '1rem', fontFamily: 'var(--font-cute)',
-                      boxShadow: isSelected ? '4px 4px 0 #1e1b4b' : '2px 2px 0 rgba(0,0,0,0.2)',
-                      transition: 'all 0.15s', transform: isSelected ? 'scale(0.97)' : 'scale(1)',
-                      opacity: hasAnswered && !isSelected ? 0.7 : 1,
-                    }}
-                  >
-                    {c.name}
-                  </button>
-                );
-              })}
-            </div>
-
-            <div style={{ textAlign: 'center', color: '#9d174d', fontSize: '0.9rem' }}>
-              {hasAnswered ? `✅ Waiting for ${opponentName || 'partner'}...` : 'Pick the correct INK color! 🎨'}
-            </div>
-          </div>
-        )}
-
+        {/* Winner Banner */}
         {state.phase === 'ended' && (
-          <div style={{ textAlign: 'center', padding: '2rem' }}>
-            <div style={{ fontSize: '4rem', marginBottom: '1rem' }}>
-              {state.winner === role ? '🏆' : state.winner === 'draw' ? '🤝' : '💔'}
-            </div>
-            <div className="font-cute" style={{ fontSize: '1.3rem', color: '#9d174d', marginBottom: '0.5rem' }}>
-              {state.winner === 'draw' ? "It's a draw!" : state.winner === role ? 'You win! 🎉' : 'Partner wins!'}
-            </div>
-            <div style={{ color: '#6b7280', fontSize: '0.9rem' }}>
-              Final: You {role === 'host' ? state.hostPoints : state.guestPoints} — {opponentName || 'Partner'} {role === 'host' ? state.guestPoints : state.hostPoints}
-            </div>
+          <div style={{ textAlign: 'center' }}>
+            <h3 style={{ fontSize: '1.4rem', color: state.winner === 'draw' ? '#ca8a04' : state.winner === role ? '#059669' : '#dc2626', fontFamily: 'var(--font-world)', marginBottom: '0.6rem' }}>
+              {state.winner === 'draw' ? "It's a Tie!" : state.winner === role ? '🎉 Stroop Champion!' : `💔 ${opponentName || 'Partner'} Won!`}
+            </h3>
+            {role === 'host' && (
+              <button onClick={resetAll} className="btn-cute btn-cute-primary" style={{ padding: '0.65rem 1.6rem' }}>
+                <RefreshCw size={16} /> Play Again
+              </button>
+            )}
           </div>
         )}
-
-        <div style={{ display: 'flex', justifyContent: 'center', gap: '10px', marginTop: '1rem' }}>
-          {state.phase === 'ended' && <button onClick={resetGame} className="btn-cute btn-cute-primary"><RefreshCw size={15} /> Play Again</button>}
-          <button onClick={fullReset} className="btn-cute btn-cute-secondary" style={{ fontSize: '0.85rem', padding: '0.5rem 1rem' }}>Reset Scores</button>
-        </div>
       </div>
     </div>
   );

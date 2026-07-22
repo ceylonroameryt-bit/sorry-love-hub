@@ -1,8 +1,8 @@
 import React, { useEffect, useRef } from 'react';
 import { useGamePeer } from '../utils/peerConnection';
-import { ArrowLeft, RefreshCw } from 'lucide-react';
+import { RefreshCw } from 'lucide-react';
+import { GameHeader } from './GameHeader';
 
-// Checkers Online — 8x8 board, diagonal capture
 const BOARD_SIZE = 8;
 
 type Piece = { player: 'host' | 'guest'; king: boolean } | null;
@@ -59,8 +59,9 @@ function getMoves(board: Piece[][], r: number, c: number, mustCapture: boolean):
 function hasAnyCapture(board: Piece[][], player: 'host' | 'guest'): boolean {
   for (let r = 0; r < BOARD_SIZE; r++) {
     for (let c = 0; c < BOARD_SIZE; c++) {
-      if (board[r][c]?.player === player) {
-        if (getMoves(board, r, c, true).some(m => m.capture)) return true;
+      if (board[r][c] && board[r][c]!.player === player) {
+        const moves = getMoves(board, r, c, true);
+        if (moves.some(m => m.capture !== null)) return true;
       }
     }
   }
@@ -79,7 +80,15 @@ const INITIAL: CheckersState = {
 };
 
 export const CheckersOnline: React.FC = () => {
-  const { role, sendGameAction, gameState, selectGame, opponentName, playerName } = useGamePeer();
+  const { role, sendGameAction, gameState, opponentName } = useGamePeer();
+
+  // Host auto-initialization
+  useEffect(() => {
+    if (role === 'host' && (!gameState || gameState.phase === undefined)) {
+      sendGameAction(INITIAL);
+    }
+  }, [role, gameState, sendGameAction]);
+
   const state: CheckersState = gameState ?? INITIAL;
   const stateRef = useRef(state);
   useEffect(() => { stateRef.current = state; }, [state]);
@@ -91,161 +100,149 @@ export const CheckersOnline: React.FC = () => {
     const s = stateRef.current;
     const piece = s.board[r][c];
 
-    // Selecting own piece
-    if (piece?.player === role) {
-      if (s.mustCaptureFrom && !(s.mustCaptureFrom[0] === r && s.mustCaptureFrom[1] === c)) return;
+    // Select piece
+    if (piece && piece.player === role) {
       sendGameAction({ ...s, selected: [r, c] });
       return;
     }
 
-    // Moving
-    if (s.selected) {
+    // Move to selected cell
+    if (s.selected && !piece) {
       const [sr, sc] = s.selected;
-      const mustCapture = hasAnyCapture(s.board, role!);
-      const moves = getMoves(s.board, sr, sc, mustCapture);
-      const move = moves.find(m => m.to[0] === r && m.to[1] === c);
+      const mustCap = hasAnyCapture(s.board, role);
+      const possible = getMoves(s.board, sr, sc, mustCap);
+      const move = possible.find(m => m.to[0] === r && m.to[1] === c);
+
       if (!move) return;
 
-      const newBoard = s.board.map(row => row.map(cell => cell ? { ...cell } : null));
-      const movingPiece = { ...newBoard[sr][sc]! };
+      const newBoard = s.board.map(row => [...row]);
+      const activePiece = { ...newBoard[sr][sc]! };
+
+      // King promotion
+      if (role === 'host' && r === 0) activePiece.king = true;
+      if (role === 'guest' && r === BOARD_SIZE - 1) activePiece.king = true;
+
+      newBoard[r][c] = activePiece;
       newBoard[sr][sc] = null;
-      if (move.capture) newBoard[move.capture[0]][move.capture[1]] = null;
 
-      // Kinging
-      const isKing = movingPiece.king || (role === 'host' && r === 0) || (role === 'guest' && r === BOARD_SIZE - 1);
-      movingPiece.king = isKing;
-      newBoard[r][c] = movingPiece;
+      if (move.capture) {
+        const [cr, cc] = move.capture;
+        newBoard[cr][cc] = null;
+      }
 
-      // Check for multi-capture
-      let mustCaptureFrom: [number, number] | null = null;
-      let nextTurn = role === 'host' ? 'guest' : 'host';
-      if (move.capture && !isKing) {
-        const chainCaptures = getMoves(newBoard, r, c, true).filter(m => m.capture);
-        if (chainCaptures.length > 0) {
-          mustCaptureFrom = [r, c];
-          nextTurn = role!;
+      // Check remaining pieces
+      let hPieces = 0; let gPieces = 0;
+      for (let row = 0; row < BOARD_SIZE; row++) {
+        for (let col = 0; col < BOARD_SIZE; col++) {
+          if (newBoard[row][col]?.player === 'host') hPieces++;
+          if (newBoard[row][col]?.player === 'guest') gPieces++;
         }
       }
 
-      // Check winner
-      const hostPieces = newBoard.flat().filter(p => p?.player === 'host').length;
-      const guestPieces = newBoard.flat().filter(p => p?.player === 'guest').length;
       let winner: 'host' | 'guest' | null = null;
-      let phase = s.phase;
-      let nextHostScore = s.hostScore;
-      let nextGuestScore = s.guestScore;
+      if (hPieces === 0) winner = 'guest';
+      if (gPieces === 0) winner = 'host';
 
-      if (hostPieces === 0) { winner = 'guest'; phase = 'ended'; nextGuestScore++; }
-      else if (guestPieces === 0) { winner = 'host'; phase = 'ended'; nextHostScore++; }
-
+      const nextTurn = role === 'host' ? 'guest' : 'host';
       sendGameAction({
         ...s,
         board: newBoard,
-        turn: nextTurn,
-        selected: mustCaptureFrom,
-        mustCaptureFrom,
+        selected: null,
+        turn: winner ? s.turn : nextTurn,
         winner,
-        phase,
-        hostScore: nextHostScore,
-        guestScore: nextGuestScore,
+        phase: winner ? 'ended' : 'playing',
+        hostScore: winner === 'host' ? s.hostScore + 1 : s.hostScore,
+        guestScore: winner === 'guest' ? s.guestScore + 1 : s.guestScore,
       });
     }
   };
 
-  const resetGame = () => {
-    const s = stateRef.current;
-    sendGameAction({ ...INITIAL, board: createInitialBoard(), hostScore: s.hostScore, guestScore: s.guestScore, turn: s.winner === 'guest' ? 'guest' : 'host' });
-  };
-
-  const fullReset = () => sendGameAction({ ...INITIAL, board: createInitialBoard() });
+  const resetAll = () => sendGameAction(INITIAL);
 
   return (
-    <div className="container-cute" style={{ maxWidth: '600px' }}>
-      <div className="card-cute" style={{ background: '#fff8f0', border: '1.5px solid #fed7aa' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
-          <button onClick={() => selectGame(null)} className="btn-cute btn-cute-secondary" style={{ padding: '0.4rem 0.9rem', fontSize: '0.85rem' }}>
-            <ArrowLeft size={15} /> Back
-          </button>
-          <span className="badge-cute">Checkers Online 🔴🟣</span>
-        </div>
+    <div className="game-container-responsive">
+      <GameHeader
+        title="Checkers Duel"
+        emoji="🔴🟣"
+        instructions={[
+          "Tap your piece to select, then tap a dark square to move diagonally.",
+          "Jump diagonally over opponent pieces to capture them!",
+          "Reach the opponent's back row to earn King promotion!",
+          "Capture all opponent pieces to win!"
+        ]}
+      />
 
-        <div style={{
-          display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px',
-          background: '#fef3c7', padding: '0.8rem', borderRadius: '15px',
-          textAlign: 'center', marginBottom: '1.5rem', border: '2px solid #1e1b4b'
-        }}>
-          <div>
-            <div style={{ fontSize: '0.8rem', color: '#b45309' }}>{playerName} {role === 'host' ? '💜' : '💖'}</div>
-            <div style={{ fontSize: '1.5rem', fontWeight: 800 }}>{role === 'host' ? state.hostScore : state.guestScore}</div>
+      <div className="card-cute" style={{ background: '#faf5ff', border: '1.5px solid #ddd6fe' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.2rem', flexWrap: 'wrap', gap: '0.4rem' }}>
+          <span className="badge-cute" style={{ background: isMyTurn ? '#dcfce7' : '#ede9fe', color: isMyTurn ? '#15803d' : '#6d28d9' }}>
+            {state.phase === 'ended' ? 'Match Ended' : isMyTurn ? '✨ YOUR TURN' : `⏳ ${opponentName || 'Partner'}'s Turn`}
+          </span>
+          <div style={{ display: 'flex', gap: '1rem', fontFamily: 'var(--font-world)', fontSize: '0.95rem' }}>
+            <span style={{ color: '#dc2626' }}>Host 🔴: {state.hostScore}</span>
+            <span style={{ color: '#7c3aed' }}>Guest 🟣: {state.guestScore}</span>
           </div>
-          <div>
-            <div style={{ fontSize: '0.8rem', color: '#b45309' }}>{opponentName || 'Partner'} {role === 'host' ? '💖' : '💜'}</div>
-            <div style={{ fontSize: '1.5rem', fontWeight: 800 }}>{role === 'host' ? state.guestScore : state.hostScore}</div>
+        </div>
+
+        {/* 8x8 Board Grid */}
+        <div className="game-board-responsive" style={{ background: '#1e1b4b', padding: '0.5rem', borderRadius: '18px', display: 'grid', gridTemplateRows: 'repeat(8, 1fr)', gap: '0.2rem', marginBottom: '1.5rem' }}>
+          {state.board.map((row, rIdx) => (
+            <div key={rIdx} style={{ display: 'grid', gridTemplateColumns: 'repeat(8, 1fr)', gap: '0.2rem' }}>
+              {row.map((cell, cIdx) => {
+                const isDark = (rIdx + cIdx) % 2 === 1;
+                const isSelected = state.selected && state.selected[0] === rIdx && state.selected[1] === cIdx;
+
+                return (
+                  <div
+                    key={cIdx}
+                    onClick={() => isDark && handleCellClick(rIdx, cIdx)}
+                    style={{
+                      aspectRatio: '1 / 1',
+                      background: isSelected ? '#fef9c3' : isDark ? '#312e81' : '#e0e7ff',
+                      borderRadius: '6px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      cursor: isDark && isMyTurn ? 'pointer' : 'default'
+                    }}
+                  >
+                    {cell?.player === 'host' && (
+                      <div style={{
+                        width: '75%', height: '75%', background: '#dc2626', borderRadius: '50%',
+                        border: '2px solid #ffffff', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        color: '#ffffff', fontWeight: 900, fontSize: '0.8rem'
+                      }}>
+                        {cell.king ? '👑' : ''}
+                      </div>
+                    )}
+                    {cell?.player === 'guest' && (
+                      <div style={{
+                        width: '75%', height: '75%', background: '#7c3aed', borderRadius: '50%',
+                        border: '2px solid #ffffff', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        color: '#ffffff', fontWeight: 900, fontSize: '0.8rem'
+                      }}>
+                        {cell.king ? '👑' : ''}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          ))}
+        </div>
+
+        {/* Winner Announcement */}
+        {state.phase === 'ended' && (
+          <div style={{ textAlign: 'center' }}>
+            <h3 style={{ fontSize: '1.4rem', color: state.winner === role ? '#059669' : '#dc2626', fontFamily: 'var(--font-world)', marginBottom: '0.6rem' }}>
+              {state.winner === role ? '🎉 You Captured All Pieces!' : `💔 ${opponentName || 'Partner'} Won!`}
+            </h3>
+            {role === 'host' && (
+              <button onClick={resetAll} className="btn-cute btn-cute-primary" style={{ padding: '0.65rem 1.6rem' }}>
+                <RefreshCw size={16} /> Play Again
+              </button>
+            )}
           </div>
-        </div>
-
-        <div style={{ textAlign: 'center', marginBottom: '1rem', height: '2rem', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          {state.phase === 'ended' ? (
-            <span className="font-cute" style={{ fontSize: '1.2rem', color: '#dc2626' }}>
-              {state.winner === role ? '🏆 You won!' : '💔 Partner won!'}
-            </span>
-          ) : (
-            <span className="font-cute" style={{ fontSize: '1.05rem', color: isMyTurn ? '#d97706' : '#a78bfa' }}>
-              {isMyTurn ? (state.selected ? 'Click a destination square!' : 'Select one of your pieces 🎯') : `Waiting for ${opponentName || 'partner'}... ⏳`}
-            </span>
-          )}
-        </div>
-
-        <div style={{
-          display: 'grid', gridTemplateColumns: `repeat(${BOARD_SIZE}, 1fr)`, gap: '0px',
-          background: '#000', border: '4px solid #1e1b4b', borderRadius: '12px', overflow: 'hidden',
-          boxShadow: '4px 4px 0 #1e1b4b', maxWidth: '380px', margin: '0 auto 1.5rem'
-        }}>
-          {state.board.map((row, r) =>
-            row.map((cell, c) => {
-              const isDark = (r + c) % 2 === 1;
-              const isSelected = state.selected?.[0] === r && state.selected?.[1] === c;
-              const isValidDest = state.selected && isMyTurn ? getMoves(
-                state.board, state.selected[0], state.selected[1],
-                hasAnyCapture(state.board, role!)
-              ).some(m => m.to[0] === r && m.to[1] === c) : false;
-
-              return (
-                <div
-                  key={`${r}-${c}`}
-                  onClick={() => handleCellClick(r, c)}
-                  style={{
-                    aspectRatio: '1', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    backgroundColor: isValidDest ? '#fef08a' : isSelected ? '#a7f3d0' : isDark ? '#5f4e3b' : '#f5e6cc',
-                    cursor: (isDark && isMyTurn) ? 'pointer' : 'default',
-                    position: 'relative',
-                  }}
-                >
-                  {cell && (
-                    <div style={{
-                      width: '70%', height: '70%', borderRadius: '50%',
-                      background: cell.player === 'host' ? 'radial-gradient(circle at 35% 35%, #a78bfa, #7c3aed)' : 'radial-gradient(circle at 35% 35%, #f472b6, #ec4899)',
-                      border: `3px solid ${isSelected ? '#10b981' : '#1e1b4b'}`,
-                      boxShadow: '2px 2px 4px rgba(0,0,0,0.4)',
-                      display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      fontSize: '0.7rem', color: '#fff', fontWeight: 900,
-                    }}>
-                      {cell.king ? '♛' : ''}
-                    </div>
-                  )}
-                  {isValidDest && !cell && (
-                    <div style={{ width: '40%', height: '40%', borderRadius: '50%', background: 'rgba(0,0,0,0.3)' }} />
-                  )}
-                </div>
-              );
-            })
-          )}
-        </div>
-
-        <div style={{ display: 'flex', justifyContent: 'center', gap: '10px' }}>
-          {state.phase === 'ended' && <button onClick={resetGame} className="btn-cute btn-cute-primary"><RefreshCw size={15} /> Play Again</button>}
-          <button onClick={fullReset} className="btn-cute btn-cute-secondary" style={{ fontSize: '0.85rem', padding: '0.5rem 1rem' }}>Reset Scores</button>
-        </div>
+        )}
       </div>
     </div>
   );

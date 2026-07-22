@@ -1,6 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import { useGamePeer } from '../utils/peerConnection';
-import { ArrowLeft, RefreshCw } from 'lucide-react';
+import { RefreshCw } from 'lucide-react';
+import { GameHeader } from './GameHeader';
 
 interface ConnectState {
   board: (string | null)[][]; // 6 rows x 7 cols
@@ -22,7 +23,15 @@ const INITIAL: ConnectState = {
 };
 
 export const ConnectFourOnline: React.FC = () => {
-  const { role, sendGameAction, gameState, selectGame, opponentName, playerName } = useGamePeer();
+  const { role, sendGameAction, gameState, opponentName } = useGamePeer();
+
+  // Host auto-initialization
+  useEffect(() => {
+    if (role === 'host' && (!gameState || gameState.winner === undefined)) {
+      sendGameAction(INITIAL);
+    }
+  }, [role, gameState, sendGameAction]);
+
   const state: ConnectState = gameState ?? INITIAL;
   const stateRef = useRef(state);
 
@@ -44,7 +53,6 @@ export const ConnectFourOnline: React.FC = () => {
     for (const { r: dr, c: dc } of directions) {
       let count = 1;
 
-      // Check positive direction
       let nr = row + dr;
       let nc = col + dc;
       while (nr >= 0 && nr < ROWS && nc >= 0 && nc < COLS && board[nr][nc] === player) {
@@ -53,7 +61,6 @@ export const ConnectFourOnline: React.FC = () => {
         nc += dc;
       }
 
-      // Check negative direction
       nr = row - dr;
       nc = col - dc;
       while (nr >= 0 && nr < ROWS && nc >= 0 && nc < COLS && board[nr][nc] === player) {
@@ -67,172 +74,141 @@ export const ConnectFourOnline: React.FC = () => {
     return false;
   };
 
-  const checkDraw = (board: (string | null)[][]): boolean => {
-    return board[0].every(cell => cell !== null);
-  };
-
-  const makeMove = (col: number) => {
+  const dropToken = (col: number) => {
     if (!isMyTurn) return;
 
-    // Find the bottommost empty row in the selected column
-    let row = -1;
+    let targetRow = -1;
     for (let r = ROWS - 1; r >= 0; r--) {
       if (state.board[r][col] === null) {
-        row = r;
+        targetRow = r;
         break;
       }
     }
+    if (targetRow === -1) return; // Column is full
 
-    if (row === -1) return; // Column is full
+    const newBoard = state.board.map(row => [...row]);
+    newBoard[targetRow][col] = myColor;
 
-    const newBoard = state.board.map(r => [...r]);
-    newBoard[row][col] = myColor;
+    const isWin = checkWin(newBoard, targetRow, col, myColor);
+    const isFull = newBoard.every(row => row.every(cell => cell !== null));
 
-    let gameWinner: 'host' | 'guest' | 'draw' | null = null;
-    if (checkWin(newBoard, row, col, myColor)) {
-      gameWinner = role!;
-    } else if (checkDraw(newBoard)) {
-      gameWinner = 'draw';
-    }
-
-    const nextTurn = state.turn === 'host' ? 'guest' : 'host';
+    let newWinner: 'host' | 'guest' | 'draw' | null = null;
     let nextHostScore = state.hostScore;
     let nextGuestScore = state.guestScore;
 
-    if (gameWinner === 'host') nextHostScore++;
-    if (gameWinner === 'guest') nextGuestScore++;
+    if (isWin) {
+      newWinner = role as 'host' | 'guest';
+      if (role === 'host') nextHostScore += 1;
+      else nextGuestScore += 1;
+    } else if (isFull) {
+      newWinner = 'draw';
+    }
+
+    const nextTurn = role === 'host' ? 'guest' : 'host';
 
     sendGameAction({
       ...state,
       board: newBoard,
       turn: nextTurn,
-      winner: gameWinner,
+      winner: newWinner,
       hostScore: nextHostScore,
       guestScore: nextGuestScore,
     });
   };
 
-  const resetGame = () => {
-    const s = stateRef.current;
+  const resetBoard = () => {
     sendGameAction({
-      ...INITIAL,
-      hostScore: s.hostScore,
-      guestScore: s.guestScore,
-      turn: s.winner === 'guest' ? 'guest' : 'host',
+      ...state,
+      board: Array(ROWS).fill(null).map(() => Array(COLS).fill(null)),
+      turn: state.turn === 'host' ? 'guest' : 'host',
+      winner: null,
     });
   };
 
-  const fullReset = () => {
-    sendGameAction(INITIAL);
-  };
-
   return (
-    <div className="container-cute" style={{ maxWidth: '650px' }}>
-      <div className="card-cute" style={{ background: '#fff9fb', border: '1.5px solid #fbcfe8' }}>
-        {/* Header */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
-          <button onClick={() => selectGame(null)} className="btn-cute btn-cute-secondary" style={{ padding: '0.4rem 0.9rem', fontSize: '0.85rem' }}>
-            <ArrowLeft size={15} /> Back
-          </button>
-          <span className="badge-cute">Connect Four Online 💜💖</span>
-        </div>
+    <div className="game-container-responsive">
+      <GameHeader
+        title="Connect Four"
+        emoji="💜💖"
+        instructions={[
+          "Tap column headers to drop tokens (💜 Host, 💖 Guest) into the 6x7 grid.",
+          "Tokens drop down to the lowest open spot in that column.",
+          "Connect 4 tokens in a row vertically, horizontally, or diagonally to win!"
+        ]}
+      />
 
-        {/* Score Board */}
-        <div style={{
-          display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px',
-          background: '#fce7f3', padding: '0.8rem', borderRadius: '15px',
-          textAlign: 'center', marginBottom: '1.5rem', border: '2px solid #1e1b4b'
-        }}>
-          <div>
-            <div style={{ fontSize: '0.8rem', color: '#db2777' }}>{playerName} {role === 'host' ? '(💜)' : '(💖)'}</div>
-            <div style={{ fontSize: '1.6rem', fontWeight: 800, color: '#1e1b4b' }}>
-              {role === 'host' ? state.hostScore : state.guestScore}
-            </div>
-          </div>
-          <div>
-            <div style={{ fontSize: '0.8rem', color: '#db2777' }}>{opponentName || 'Partner'} {role === 'host' ? '(💖)' : '(💜)'}</div>
-            <div style={{ fontSize: '1.6rem', fontWeight: 800, color: '#1e1b4b' }}>
-              {role === 'host' ? state.guestScore : state.hostScore}
-            </div>
+      <div className="card-cute" style={{ background: '#faf5ff', border: '1.5px solid #ddd6fe' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.2rem', flexWrap: 'wrap', gap: '0.4rem' }}>
+          <span className="badge-cute" style={{ background: isMyTurn ? '#dcfce7' : '#ede9fe', color: isMyTurn ? '#15803d' : '#6d28d9' }}>
+            {state.winner ? 'Round Ended' : isMyTurn ? '✨ YOUR TURN' : `⏳ ${opponentName || 'Partner'}'s Turn`}
+          </span>
+          <div style={{ display: 'flex', gap: '1rem', fontFamily: 'var(--font-world)', fontSize: '0.95rem' }}>
+            <span style={{ color: '#7c3aed' }}>Host 💜: {state.hostScore}</span>
+            <span style={{ color: '#ec4899' }}>Guest 💖: {state.guestScore}</span>
           </div>
         </div>
 
-        {/* Status */}
-        <div style={{ textAlign: 'center', marginBottom: '1rem', height: '2rem' }}>
-          {state.winner ? (
-            <span className="font-cute" style={{ color: state.winner === 'draw' ? '#4b5563' : '#db2777', fontSize: '1.2rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '5px' }}>
-              {state.winner === 'draw' ? "It's a draw! 🤝" : state.winner === role ? 'You won! 🎉🏆' : 'Partner won! 💔'}
-            </span>
-          ) : (
-            <span className="font-cute" style={{ color: isMyTurn ? '#ec4899' : '#db2777', fontSize: '1.1rem' }}>
-              {isMyTurn ? 'Your Turn! Drop a token ✨' : `Waiting for ${opponentName || 'partner'}... ⏳`}
-            </span>
-          )}
-        </div>
-
-        {/* Connect 4 Board */}
-        <div style={{
-          background: '#3b82f6', border: '4px solid #1e1b4b',
-          borderRadius: '20px', padding: '15px', maxWidth: '420px',
-          margin: '0 auto 1.5rem', boxShadow: '5px 5px 0px #1e1b4b'
-        }}>
-          {/* Columns selectors */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '8px', marginBottom: '10px' }}>
-            {Array(COLS).fill(null).map((_, c) => (
-              <button
-                key={c}
-                disabled={!isMyTurn || state.board[0][c] !== null}
-                onClick={() => makeMove(c)}
-                style={{
-                  background: isMyTurn && state.board[0][c] === null ? '#fef08a' : 'transparent',
-                  border: isMyTurn && state.board[0][c] === null ? '2px solid #1e1b4b' : 'none',
-                  borderRadius: '50%', aspectRatio: '1', display: 'flex',
-                  alignItems: 'center', justifyContent: 'center', cursor: 'pointer',
-                  fontWeight: 900, color: '#1e1b4b', fontSize: '0.8rem'
-                }}
-              >
-                👇
-              </button>
-            ))}
-          </div>
-
-          {/* Grid cells */}
-          <div style={{
-            display: 'grid', gridTemplateRows: 'repeat(6, 1fr)', gap: '8px',
-          }}>
-            {state.board.map((row, r) => (
-              <div key={r} style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '8px' }}>
-                {row.map((cell, c) => (
-                  <div
-                    key={c}
-                    style={{
-                      aspectRatio: '1', borderRadius: '50%',
-                      backgroundColor: cell === '💜' ? '#c084fc' : cell === '💖' ? '#f472b6' : '#fff',
-                      border: '3px solid #1e1b4b',
-                      boxShadow: cell !== null ? 'inset 2px 2px 0px rgba(0,0,0,0.1)' : 'none',
-                      display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      fontSize: '1.2rem',
-                    }}
-                  >
-                    {cell ? (cell === '💜' ? '💜' : '💖') : ''}
-                  </div>
-                ))}
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Actions */}
-        <div style={{ display: 'flex', justifyContent: 'center', gap: '10px' }}>
-          {state.winner && (
-            <button onClick={resetGame} className="btn-cute btn-cute-primary">
-              <RefreshCw size={16} /> Play Again
+        {/* Drop Column Buttons */}
+        <div className="game-board-responsive" style={{ height: 'auto', marginBottom: '0.5rem', display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '0.3rem' }}>
+          {Array.from({ length: COLS }).map((_, cIdx) => (
+            <button
+              key={cIdx}
+              onClick={() => dropToken(cIdx)}
+              disabled={!isMyTurn || state.board[0][cIdx] !== null}
+              style={{
+                padding: '0.4rem 0',
+                borderRadius: '10px',
+                border: '1.5px solid #c084fc',
+                background: '#f3e8ff',
+                color: '#6d28d9',
+                fontWeight: 700,
+                fontSize: '0.85rem',
+                cursor: isMyTurn && state.board[0][cIdx] === null ? 'pointer' : 'default',
+                fontFamily: 'var(--font-cute)'
+              }}
+            >
+              ⬇️
             </button>
-          )}
-          <button onClick={fullReset} className="btn-cute btn-cute-secondary" style={{ fontSize: '0.85rem', padding: '0.5rem 1rem' }}>
-            Reset Score
-          </button>
+          ))}
         </div>
+
+        {/* Grid Board */}
+        <div className="game-board-responsive" style={{ height: 'auto', background: '#7c3aed', padding: '0.6rem', borderRadius: '20px', display: 'grid', gridTemplateRows: 'repeat(6, 1fr)', gap: '0.4rem', marginBottom: '1.5rem' }}>
+          {state.board.map((row, rIdx) => (
+            <div key={rIdx} style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '0.4rem' }}>
+              {row.map((cell, cIdx) => (
+                <div
+                  key={cIdx}
+                  onClick={() => dropToken(cIdx)}
+                  style={{
+                    aspectRatio: '1 / 1',
+                    background: cell ? '#ffffff' : 'rgba(255,255,255,0.2)',
+                    borderRadius: '50%',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontSize: '1.6rem',
+                    cursor: isMyTurn ? 'pointer' : 'default'
+                  }}
+                >
+                  {cell}
+                </div>
+              ))}
+            </div>
+          ))}
+        </div>
+
+        {/* Winner Announcement */}
+        {state.winner && (
+          <div style={{ textAlign: 'center' }}>
+            <h3 style={{ fontSize: '1.4rem', color: state.winner === 'draw' ? '#ca8a04' : state.winner === role ? '#059669' : '#dc2626', fontFamily: 'var(--font-world)', marginBottom: '0.6rem' }}>
+              {state.winner === 'draw' ? "It's a Draw!" : state.winner === role ? '🎉 You Connected 4!' : `💔 ${opponentName || 'Partner'} Connected 4!`}
+            </h3>
+            <button onClick={resetBoard} className="btn-cute btn-cute-primary" style={{ padding: '0.65rem 1.6rem' }}>
+              <RefreshCw size={16} /> Play Next Round
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );
